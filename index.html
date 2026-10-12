@@ -7679,6 +7679,7 @@ function openPrintSheet(inv, items, party){
    ══════════════════════════════════════════════════════════════════ */
 
 /* ── Plain-text receipt (ESC/POS) — pure ASCII only ── */
+/* ── Plain-text receipt (ESC/POS) — pure ASCII only ── */
 function buildThermalReceiptText(inv, items, party){
   const W = 32;
   const divider = '-'.repeat(W);
@@ -7722,9 +7723,8 @@ function buildThermalReceiptText(inv, items, party){
   }
   t += divider + '\n';
 
-  /* Items — loop through each line */
-  items.forEach((it, i) => {
-    /* Item name (wrap if needed) */
+  /* Items */
+  items.forEach((it) => {
     let name = it.product_name || '';
     if(name.length > W){
       t += name.slice(0, W) + '\n';
@@ -7732,13 +7732,11 @@ function buildThermalReceiptText(inv, items, party){
     } else {
       t += name + '\n';
     }
-    /* Batch + expiry + amount */
     const batchLbl = it.batch_no ? 'B:' + it.batch_no : '';
     const expLbl   = it.expiry_date ? 'E:' + fmtExpiryShort(it.expiry_date) : '';
     const meta     = ('  ' + batchLbl + ' ' + expLbl).trim();
     const amtStr   = 'Rs.' + Number(it.total || 0).toFixed(2);
     t += line(meta, amtStr) + '\n';
-    /* Qty x rate */
     t += '  ' + fmtNum(it.qty) + ' ' + (it.unit || '') + ' x Rs.' + Number(it.price || 0).toFixed(2) + '\n';
   });
 
@@ -7759,13 +7757,13 @@ function buildThermalReceiptText(inv, items, party){
   }
   t += divider + '\n';
 
-      /* Footer */
-  t += '\n';
-  t += (SETTINGS.print_footer || 'Thank you! Get well soon 💊') + '\n';
+  /* Footer — reduced bottom space */
+  t += (SETTINGS.print_footer || 'Thank you! Get well soon') + '\n';
   t += 'Medicines once sold are\nnot returnable.\n';
   t += '\n';
 
   return t;
+}
 
 /* ── HTML receipt (used for Local browser print) ── */
 function buildThermalReceiptHTML(inv, items, party){
