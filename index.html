@@ -12034,19 +12034,16 @@ async function route(){
   const app = $('#app');
   if(!app) return;
 
-  /* Not logged in → login screen */
   if(!SESSION){
     renderLogin();
     return;
   }
 
-  /* Ensure data is fresh */
   if(window.DB_SYNCED !== true){
     app.innerHTML = '<div class="loading"><div class="spinner"></div><div>Loading your shop…</div></div>';
     await syncDB();
   }
 
-  /* Render shell */
   renderLayout();
   const content = $('#content');
   const title   = $('#topbar-title');
@@ -12056,109 +12053,41 @@ async function route(){
   const { path, segs, id, query } = parseRoute();
 
   try {
-    /* ═══════════════ Main pages ═══════════════ */
-    if(path === '/' || path === ''){
-      renderDashboard(content);
-    }
+    /* ── Profile routes (must check id) ── */
+    if(segs[0] === 'customer' && id) return await renderCustomerProfile(content, id);
+    if(segs[0] === 'doctor'   && id) return await renderDoctorProfile(content, id);
+    if(segs[0] === 'company'  && id) return await renderSupplierProfile(content, id);
+    if(segs[0] === 'supplier' && id) return await renderSupplierProfile(content, id);
+    if(segs[0] === 'invoice'  && id) return await renderInvoiceView(content, id);
 
-    /* ═══════════════ Analytics ═══════════════ */
-    else if(path === '/analytics'){
-      renderAnalytics(content);
-    }
-
-    /* ═══════════════ Shop Health ═══════════════ */
-    else if(path === '/shop-health'){
-      renderShopHealth(content);
-    }
-
-    /* ═══════════════ Customers ═══════════════ */
-    else if(path === '/customers'){
-      renderCustomers(content);
-    }
-    else if(segs[0] === 'customer' && id){
-      await renderCustomerProfile(content, id);
-    }
-
-    /* ═══════════════ Doctors ═══════════════ */
-    else if(path === '/doctors'){
-      renderDoctors(content);
-    }
-    else if(segs[0] === 'doctor' && id){
-      await renderDoctorProfile(content, id);
-    }
-
-    /* ═══════════════ Vendors (Companies / Suppliers) ═══════════════ */
-    else if(path === '/companies'){
-      renderCompanies(content);
-    }
-    else if(segs[0] === 'company' && id){
-      await renderSupplierProfile(content, id);
-    }
-    else if(path === '/suppliers'){
-      renderSuppliers(content);
-    }
-    else if(segs[0] === 'supplier' && id){
-      await renderSupplierProfile(content, id);
-    }
-
-    /* ═══════════════ Products & Batches ═══════════════ */
-    else if(path === '/products'){
-      renderProducts(content);
-    }
-    else if(path === '/batches'){
-      renderBatches(content);
-    }
-
-    /* ═══════════════ Purchases ═══════════════ */
-    else if(path === '/purchases'){
-      renderPurchases(content);
-    }
-
-    /* ═══════════════ Invoices ═══════════════ */
-    else if(path === '/invoices'){
-      renderInvoices(content);
-    }
-    else if(segs[0] === 'invoice' && id){
-      await renderInvoiceView(content, id);
-    }
-    else if(path === '/new-invoice'){
-      renderNewInvoice(content, {
+    /* ── Top-level routes ── */
+    if(path === '/')             return renderDashboard(content);
+    if(path === '/analytics')    return renderAnalytics(content);
+    if(path === '/shop-health')  return renderShopHealth(content);
+    if(path === '/customers')    return renderCustomers(content);
+    if(path === '/doctors')      return renderDoctors(content);
+    if(path === '/companies')    return renderCompanies(content);
+    if(path === '/suppliers')    return renderSuppliers(content);
+    if(path === '/products')     return renderProducts(content);
+    if(path === '/batches')      return renderBatches(content);
+    if(path === '/purchases')    return renderPurchases(content);
+    if(path === '/invoices')     return renderInvoices(content);
+    if(path === '/new-invoice'){
+      return renderNewInvoice(content, {
         customer_id: query.customer || null,
         doctor_id:   query.doctor   || null
       });
     }
+    if(path === '/returns')      return renderReturns(content);
+    if(path === '/expenses')     return renderExpenses(content);
+    if(path === '/reports')      return renderReports(content);
+    if(path === '/pnl')          return renderPnL(content);
+    if(path === '/margin')       return renderMargin(content);
+    if(path === '/myshop')       return renderMyShop(content);
+    if(path === '/backup')       return renderBackup(content);
 
-    /* ═══════════════ Returns & Expenses ═══════════════ */
-    else if(path === '/returns'){
-      renderReturns(content);
-    }
-    else if(path === '/expenses'){
-      renderExpenses(content);
-    }
-
-    /* ═══════════════ Reports ═══════════════ */
-    else if(path === '/reports'){
-      renderReports(content);
-    }
-    else if(path === '/pnl'){
-      renderPnL(content);
-    }
-    else if(path === '/margin'){
-      renderMargin(content);
-    }
-
-    /* ═══════════════ Settings ═══════════════ */
-    else if(path === '/myshop'){
-      renderMyShop(content);
-    }
-    else if(path === '/backup'){
-      renderBackup(content);
-    }
-
-    /* ═══════════════ Fallback ═══════════════ */
-    else {
-      renderDashboard(content);
-    }
+    /* ── Fallback ── */
+    return renderDashboard(content);
 
   } catch(err){
     console.error('[route]', err);
@@ -12170,7 +12099,6 @@ async function route(){
       '</div>';
   }
 }
-
 /* ─────────────────────────────────────────────
    3. ROUTE EVENT LISTENER
    ───────────────────────────────────────────── */
