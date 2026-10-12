@@ -7710,7 +7710,7 @@ function openPrintSheet(inv, items, party){
 /* ── Plain-text receipt (ESC/POS) ── */
 function buildThermalReceiptText(inv, items, party){
   const W = 32;
-  const divider = '─'.repeat(W);
+  const divider = '-'.repeat(W);
   const line = (l, r) => {
     l = String(l || '');
     r = String(r || '');
@@ -10586,6 +10586,7 @@ function thermalSafe(s){
   return String(s == null ? '' : s)
     .replace(/₹/g, 'Rs.')
     .replace(/×/g, 'x')
+    .replace(/─/g, '-')
     .replace(/…/g, '...')
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'");
