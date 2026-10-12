@@ -12002,14 +12002,13 @@ window.SUBSCRIPTION_CONFIG = {
   console.log('[MediStore] Block 19 loaded · subscription');
 })();
 </script>
+<!-- ══════════════════════════════════════════════════════════════════
+     BLOCK 20 — ROUTER + BOOT
+     ══════════════════════════════════════════════════════════════════ -->
 <script>
-/* ══════════════════════════════════════════════════════════════════
-   BLOCK 20 — ROUTER + BOOT
-   ══════════════════════════════════════════════════════════════════ */
-
 /* ─────────────────────────────────────────────
    1. ROUTE PARSER
-   Returns { path, id, query }
+   Returns { path, segs, id, query }
    ───────────────────────────────────────────── */
 function parseRoute(){
   const raw   = location.hash || '#/';
@@ -12054,10 +12053,10 @@ async function route(){
   if(!content) return;
   if(title) title.textContent = currentPageTitle();
 
-  const { path, id, query } = parseRoute();
+  const { path, segs, id, query } = parseRoute();
 
   try {
-       /* ═══════════════ Main pages ═══════════════ */
+    /* ═══════════════ Main pages ═══════════════ */
     if(path === '/' || path === ''){
       renderDashboard(content);
     }
@@ -12161,11 +12160,6 @@ async function route(){
       renderDashboard(content);
     }
 
-    /* ═══════════════ Fallback ═══════════════ */
-    else {
-      renderDashboard(content);
-    }
-
   } catch(err){
     console.error('[route]', err);
     content.innerHTML =
@@ -12245,6 +12239,5 @@ window.addEventListener('beforeunload', () => {
 
 console.log('[MediStore] Block 20 loaded · router + boot · APP READY');
 </script>
-
 </body>
 </html>
