@@ -7768,8 +7768,7 @@ function buildThermalReceiptText(inv, items, party){
     const amtStr   = '₹' + Number(it.total || 0).toFixed(2);
     t += line(meta, amtStr) + '\n';
     /* Qty × rate sub-line */
-    t += '  ' + fmtNum(it.qty) + ' ' + (it.unit || '') + ' × ₹' + Number(it.price || 0).toFixed(2) + '\n';
-  });
+    t += '  ' + fmtNum(it.qty) + ' ' + (it.unit || '') + ' x Rs.' + Number(it.price || 0).toFixed(2) + '\n';
 
   t += divider + '\n';
 
