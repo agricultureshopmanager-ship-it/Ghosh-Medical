@@ -7769,6 +7769,7 @@ function buildThermalReceiptText(inv, items, party){
     t += line(meta, amtStr) + '\n';
     /* Qty × rate sub-line */
     t += '  ' + fmtNum(it.qty) + ' ' + (it.unit || '') + ' x Rs.' + Number(it.price || 0).toFixed(2) + '\n';
+       });
 
   t += divider + '\n';
 
