@@ -7759,14 +7759,12 @@ function buildThermalReceiptText(inv, items, party){
   }
   t += divider + '\n';
 
-  /* Footer */
-  t += '\n';
-  t += (SETTINGS.print_footer || 'Thank you! Get well soon') + '\n';
+    /* Footer */
+  t += (SETTINGS.print_footer || 'Thank you! Get well soon 💊') + '\n';
   t += 'Medicines once sold are\nnot returnable.\n';
-  t += '\n\n\n';
+  t += '\n';
 
   return t;
-}
 
 /* ── HTML receipt (used for Local browser print) ── */
 function buildThermalReceiptHTML(inv, items, party){
@@ -10574,7 +10572,7 @@ function buildEscPos(text, opts){
   parts.push(enc.encode(thermalSafe(text)));
 
   /* Feed */
-  parts.push(enc.encode('\n\n\n\n'));
+  parts.push(enc.encode('\n\n'));
 
   /* Cut (full cut) */
   if(opts.cut !== false){
