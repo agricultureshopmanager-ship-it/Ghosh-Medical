@@ -12057,7 +12057,7 @@ async function route(){
   const { path, id, query } = parseRoute();
 
   try {
-    /* ═══════════════ Main pages ═══════════════ */
+       /* ═══════════════ Main pages ═══════════════ */
     if(path === '/' || path === ''){
       renderDashboard(content);
     }
@@ -12076,7 +12076,7 @@ async function route(){
     else if(path === '/customers'){
       renderCustomers(content);
     }
-    else if(path === '/customer' && id){
+    else if(segs[0] === 'customer' && id){
       await renderCustomerProfile(content, id);
     }
 
@@ -12084,7 +12084,7 @@ async function route(){
     else if(path === '/doctors'){
       renderDoctors(content);
     }
-    else if(path === '/doctor' && id){
+    else if(segs[0] === 'doctor' && id){
       await renderDoctorProfile(content, id);
     }
 
@@ -12092,13 +12092,13 @@ async function route(){
     else if(path === '/companies'){
       renderCompanies(content);
     }
-    else if(path === '/company' && id){
+    else if(segs[0] === 'company' && id){
       await renderSupplierProfile(content, id);
     }
     else if(path === '/suppliers'){
       renderSuppliers(content);
     }
-    else if(path === '/supplier' && id){
+    else if(segs[0] === 'supplier' && id){
       await renderSupplierProfile(content, id);
     }
 
@@ -12119,7 +12119,7 @@ async function route(){
     else if(path === '/invoices'){
       renderInvoices(content);
     }
-    else if(path === '/invoice' && id){
+    else if(segs[0] === 'invoice' && id){
       await renderInvoiceView(content, id);
     }
     else if(path === '/new-invoice'){
@@ -12154,6 +12154,11 @@ async function route(){
     }
     else if(path === '/backup'){
       renderBackup(content);
+    }
+
+    /* ═══════════════ Fallback ═══════════════ */
+    else {
+      renderDashboard(content);
     }
 
     /* ═══════════════ Fallback ═══════════════ */
