@@ -10585,7 +10585,7 @@ console.log('[MediStore] Block 17 loaded · my shop + backup/restore');
 function thermalSafe(s){
   return String(s == null ? '' : s)
     .replace(/₹/g, 'Rs.')
-    .replace(/─/g, '-')
+    .replace(/×/g, 'x')
     .replace(/…/g, '...')
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'");
