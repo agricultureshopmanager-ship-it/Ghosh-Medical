@@ -7374,19 +7374,10 @@ function renderInvoices(content){
 async function deleteInvoice(inv, onDone){
   const items = DB.invoice_items.filter(x => x.invoice_id === inv.id);
 
-  /* Pre-check: has any batch been fully consumed and removed? */
-  for(const it of items){
-    if(!it.batch_id || !it.batch_no) continue;
-    /* If the batch still exists → restore qty. If batch deleted → skip. */
-    const batch = DB.product_batches.find(b => b.id === it.batch_id);
-    /* Nothing to block — safe to proceed even if batch is gone */
-  }
-
   const name = inv.customer_name || 'Walk-in';
   const msg = `Delete invoice ${inv.invoice_no} of ${rs(inv.total)}?\n\nCustomer: ${name}\n\nStock will be restored to the original batches.`;
   if(!confirmDlg(msg, 'Confirm Delete')) return;
 
-  /* Restore batch / product stock */
   for(const it of items){
     const qty = Number(it.qty) || 0;
     if(!qty) continue;
@@ -7394,10 +7385,8 @@ async function deleteInvoice(inv, onDone){
     if(it.batch_id){
       const batch = DB.product_batches.find(b => b.id === it.batch_id);
       if(batch){
-        /* Batch still exists → restore */
         await adjustBatchQty(batch.id, qty);
       } else if(it.batch_no && it.expiry_date && it.product_id){
-        /* Batch was deleted — try to find by (product, batch_no, expiry) */
         const alt = DB.product_batches.find(b =>
           b.product_id === it.product_id &&
           b.batch_no === it.batch_no &&
@@ -7406,12 +7395,10 @@ async function deleteInvoice(inv, onDone){
         if(alt){
           await adjustBatchQty(alt.id, qty);
         } else {
-          /* Batch is gone entirely — cannot restore, log only */
           console.warn('[deleteInvoice] batch missing, cannot restore:', it.batch_no);
         }
       }
     } else if(it.product_id){
-      /* Non-batch product */
       await adjustProductStock(it.product_id, qty);
     }
   }
@@ -7427,7 +7414,6 @@ async function deleteInvoice(inv, onDone){
 
 /* ══════════════════════════════════════════════════════════════════
    3. INVOICE VIEW
-   Route: #/invoice/<id>  (optionally ?print=1 to auto-open print sheet)
    ══════════════════════════════════════════════════════════════════ */
 async function renderInvoiceView(content, id){
   const inv = DB.invoices.find(x => x.id === id);
@@ -7456,7 +7442,6 @@ async function renderInvoiceView(content, id){
       </div>
     </div>
 
-    <!-- CUSTOMER + RX INFO -->
     <div class="card" style="margin-bottom:14px">
       <div class="grid-2">
         <div>
@@ -7475,11 +7460,9 @@ async function renderInvoiceView(content, id){
       </div>
     </div>
 
-    <!-- ITEMS -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-title">Items <small>${items.length} line${items.length === 1 ? '' : 's'}</small></div>
 
-      <!-- Desktop table -->
       <div class="tbl-wrap responsive">
         <table>
           <thead>
@@ -7509,7 +7492,6 @@ async function renderInvoiceView(content, id){
         </table>
       </div>
 
-      <!-- Mobile list -->
       <div class="mobile-list">
         ${items.map(it => `
           <div class="card" style="margin-bottom:8px;padding:12px;background:#fafbfc">
@@ -7534,7 +7516,6 @@ async function renderInvoiceView(content, id){
       </div>
     </div>
 
-    <!-- TOTALS -->
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;flex-direction:column;gap:8px;font-size:13px">
         <div style="display:flex;justify-content:space-between">
@@ -7573,7 +7554,6 @@ async function renderInvoiceView(content, id){
       ` : ''}
     </div>
 
-    <!-- PRINT & SHARE -->
     <div class="card" style="margin-bottom:14px">
       <div class="card-title">Print & Share</div>
 
@@ -7600,7 +7580,6 @@ async function renderInvoiceView(content, id){
       ` : ''}
     </div>
 
-    <!-- DANGER ZONE -->
     <div class="card" style="margin-bottom:14px">
       <button class="btn btn-danger btn-block" id="btn-del-inv">🗑 Delete Invoice</button>
       <div class="field-hint" style="text-align:center;margin-top:6px">Stock will be restored to the original batches</div>
@@ -7609,13 +7588,11 @@ async function renderInvoiceView(content, id){
     <div class="text-center text-xs muted-2" style="padding:14px 0">${enteredOn(inv)}</div>
   `;
 
-  /* ── Print handlers ── */
   $('#btn-local-print').onclick = () => runLocalPrint(inv, items, { name: custName, phone: custPhone });
   $('#btn-bt-print').onclick    = () => runBluetoothPrint(inv, items, { name: custName, phone: custPhone });
   $('#btn-usb-print').onclick   = () => runUsbPrint(inv, items, { name: custName, phone: custPhone });
   $('#btn-pdf').onclick         = () => runInvoicePDF(inv, items, { name: custName, phone: custPhone });
 
-  /* ── WhatsApp handlers ── */
   const waTextBtn = $('#btn-wa-text');
   if(waTextBtn && custPhone){
     waTextBtn.onclick = () => sendInvoiceWhatsAppText(inv, items, custPhone);
@@ -7625,12 +7602,10 @@ async function renderInvoiceView(content, id){
     waPdfBtn.onclick = () => sendInvoiceWhatsAppPDF(inv, items, custPhone);
   }
 
-  /* ── Delete ── */
   $('#btn-del-inv').onclick = async () => {
     await deleteInvoice(inv, () => { location.hash = '#/invoices'; });
   };
 
-  /* ── Auto-open print sheet if ?print=1 ── */
   const hashQuery = location.hash.split('?')[1] || '';
   if(new URLSearchParams(hashQuery).get('print') === '1'){
     setTimeout(() => {
@@ -7643,8 +7618,6 @@ async function renderInvoiceView(content, id){
 
 /* ══════════════════════════════════════════════════════════════════
    4. PRINT / SHARE STUBS
-   These delegate to the printer modules loaded in Block 18.
-   If a module is missing, we show a clear toast instead of crashing.
    ══════════════════════════════════════════════════════════════════ */
 function runLocalPrint(inv, items, party){
   if(window.LocalPrinter && typeof window.LocalPrinter.print === 'function'){
@@ -7678,7 +7651,6 @@ function runInvoicePDF(inv, items, party){
   }
 }
 
-/* ── Print options sheet (used when ?print=1 arrives) ── */
 function openPrintSheet(inv, items, party){
   openModal(`
     <h2 style="font-size:16px;font-weight:700;margin-bottom:4px">Print Invoice</h2>
@@ -7704,10 +7676,9 @@ function openPrintSheet(inv, items, party){
 
 /* ══════════════════════════════════════════════════════════════════
    5. THERMAL RECEIPT BUILDERS (58mm — 32 chars/line)
-   Used by Local / Bluetooth / USB print modules (Block 18).
    ══════════════════════════════════════════════════════════════════ */
 
-/* ── Plain-text receipt (ESC/POS) ── */
+/* ── Plain-text receipt (ESC/POS) — pure ASCII only ── */
 function buildThermalReceiptText(inv, items, party){
   const W = 32;
   const divider = '-'.repeat(W);
@@ -7751,7 +7722,7 @@ function buildThermalReceiptText(inv, items, party){
   }
   t += divider + '\n';
 
-  /* Items */
+  /* Items — loop through each line */
   items.forEach((it, i) => {
     /* Item name (wrap if needed) */
     let name = it.product_name || '';
@@ -7761,36 +7732,36 @@ function buildThermalReceiptText(inv, items, party){
     } else {
       t += name + '\n';
     }
-    /* Batch + expiry + qty + amount */
+    /* Batch + expiry + amount */
     const batchLbl = it.batch_no ? 'B:' + it.batch_no : '';
     const expLbl   = it.expiry_date ? 'E:' + fmtExpiryShort(it.expiry_date) : '';
     const meta     = ('  ' + batchLbl + ' ' + expLbl).trim();
-    const amtStr   = '₹' + Number(it.total || 0).toFixed(2);
+    const amtStr   = 'Rs.' + Number(it.total || 0).toFixed(2);
     t += line(meta, amtStr) + '\n';
-    /* Qty × rate sub-line */
+    /* Qty x rate */
     t += '  ' + fmtNum(it.qty) + ' ' + (it.unit || '') + ' x Rs.' + Number(it.price || 0).toFixed(2) + '\n';
-       });
+  });
 
   t += divider + '\n';
 
   /* Totals */
-  t += line('Subtotal', '₹' + Number(inv.subtotal || 0).toFixed(2)) + '\n';
+  t += line('Subtotal', 'Rs.' + Number(inv.subtotal || 0).toFixed(2)) + '\n';
   if(Number(inv.discount) > 0){
-    t += line('Discount', '-₹' + Number(inv.discount).toFixed(2)) + '\n';
+    t += line('Discount', '-Rs.' + Number(inv.discount).toFixed(2)) + '\n';
   }
   if(inv.gst_enabled && Number(inv.gst_amount) > 0){
-    t += line('GST (incl.)', '₹' + Number(inv.gst_amount).toFixed(2)) + '\n';
+    t += line('GST (incl.)', 'Rs.' + Number(inv.gst_amount).toFixed(2)) + '\n';
   }
-  t += line('TOTAL', '₹' + Number(inv.total || 0).toFixed(2)) + '\n';
-  t += line('Paid', '₹' + Number(inv.paid || 0).toFixed(2)) + '\n';
+  t += line('TOTAL', 'Rs.' + Number(inv.total || 0).toFixed(2)) + '\n';
+  t += line('Paid', 'Rs.' + Number(inv.paid || 0).toFixed(2)) + '\n';
   if(Number(inv.due) > 0){
-    t += line('DUE', '₹' + Number(inv.due).toFixed(2)) + '\n';
+    t += line('DUE', 'Rs.' + Number(inv.due).toFixed(2)) + '\n';
   }
   t += divider + '\n';
 
   /* Footer */
   t += '\n';
-  t += (SETTINGS.print_footer || 'Thank you! Get well soon 💊') + '\n';
+  t += (SETTINGS.print_footer || 'Thank you! Get well soon') + '\n';
   t += 'Medicines once sold are\nnot returnable.\n';
   t += '\n\n\n';
 
@@ -7805,23 +7776,23 @@ function buildThermalReceiptHTML(inv, items, party){
     <div style="margin-bottom:6px">
       <div style="font-weight:700">${esc(it.product_name)}</div>
       <div style="display:flex;justify-content:space-between;font-size:10px">
-        <span>${it.batch_no ? 'B:' + esc(it.batch_no) : ''}${it.batch_no && it.expiry_date ? ' · ' : ''}${it.expiry_date ? 'E:' + fmtExpiryShort(it.expiry_date) : ''}</span>
-        <span>${'₹' + Number(it.total || 0).toFixed(2)}</span>
+        <span>${it.batch_no ? 'B:' + esc(it.batch_no) : ''}${it.batch_no && it.expiry_date ? ' . ' : ''}${it.expiry_date ? 'E:' + fmtExpiryShort(it.expiry_date) : ''}</span>
+        <span>Rs.${Number(it.total || 0).toFixed(2)}</span>
       </div>
-      <div style="font-size:10px;color:#444">${fmtNum(it.qty)} ${esc(it.unit || '')} × ₹${Number(it.price || 0).toFixed(2)}</div>
+      <div style="font-size:10px;color:#444">${fmtNum(it.qty)} ${esc(it.unit || '')} x Rs.${Number(it.price || 0).toFixed(2)}</div>
     </div>
   `).join('');
 
   const gstLine = inv.gst_enabled && Number(inv.gst_amount) > 0
-    ? `<div style="display:flex;justify-content:space-between"><span>GST (incl.)</span><span>₹${Number(inv.gst_amount).toFixed(2)}</span></div>`
+    ? `<div style="display:flex;justify-content:space-between"><span>GST (incl.)</span><span>Rs.${Number(inv.gst_amount).toFixed(2)}</span></div>`
     : '';
 
   const discLine = Number(inv.discount) > 0
-    ? `<div style="display:flex;justify-content:space-between"><span>Discount</span><span>-₹${Number(inv.discount).toFixed(2)}</span></div>`
+    ? `<div style="display:flex;justify-content:space-between"><span>Discount</span><span>-Rs.${Number(inv.discount).toFixed(2)}</span></div>`
     : '';
 
   const dueLine = Number(inv.due) > 0
-    ? `<div style="display:flex;justify-content:space-between;font-weight:700"><span>DUE</span><span>₹${Number(inv.due).toFixed(2)}</span></div>`
+    ? `<div style="display:flex;justify-content:space-between;font-weight:700"><span>DUE</span><span>Rs.${Number(inv.due).toFixed(2)}</span></div>`
     : '';
 
   const rxBlock = (inv.doctor_name || inv.patient_name || inv.prescription_no) ? `
@@ -7851,15 +7822,15 @@ function buildThermalReceiptHTML(inv, items, party){
       <div style="border-top:1px dashed #000;margin:4px 0"></div>
       ${rows}
       <div style="border-top:1px dashed #000;margin:4px 0"></div>
-      <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>₹${Number(inv.subtotal || 0).toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>Rs.${Number(inv.subtotal || 0).toFixed(2)}</span></div>
       ${discLine}
       ${gstLine}
-      <div style="display:flex;justify-content:space-between;font-weight:700;font-size:12px;margin-top:2px"><span>TOTAL</span><span>₹${Number(inv.total || 0).toFixed(2)}</span></div>
-      <div style="display:flex;justify-content:space-between"><span>Paid</span><span>₹${Number(inv.paid || 0).toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-weight:700;font-size:12px;margin-top:2px"><span>TOTAL</span><span>Rs.${Number(inv.total || 0).toFixed(2)}</span></div>
+      <div style="display:flex;justify-content:space-between"><span>Paid</span><span>Rs.${Number(inv.paid || 0).toFixed(2)}</span></div>
       ${dueLine}
       <div style="border-top:1px dashed #000;margin:4px 0"></div>
       <div style="text-align:center;margin-top:6px;font-size:10px">
-        ${esc(SETTINGS.print_footer || 'Thank you! Get well soon 💊')}<br>
+        ${esc(SETTINGS.print_footer || 'Thank you! Get well soon')}<br>
         Medicines once sold are not returnable.
       </div>
       <div style="height:20mm"></div>
@@ -7897,24 +7868,24 @@ function sendInvoiceWhatsAppText(inv, items, phone){
     msg += (i + 1) + '. ' + it.product_name + '\n';
     if(it.batch_no)     msg += '   Batch: ' + it.batch_no + (it.expiry_date ? ' | Exp: ' + fmtExpiryShort(it.expiry_date) : '') + '\n';
     else if(it.expiry_date) msg += '   Exp: ' + fmtExpiryShort(it.expiry_date) + '\n';
-    msg += '   Qty: ' + fmtNum(it.qty) + ' × ₹' + Number(it.price || 0).toFixed(2)
-        + ' = ₹' + Number(it.total || 0).toFixed(2) + '\n';
+    msg += '   Qty: ' + fmtNum(it.qty) + ' x Rs.' + Number(it.price || 0).toFixed(2)
+        + ' = Rs.' + Number(it.total || 0).toFixed(2) + '\n';
   });
 
   msg += '\n--------------------\n';
-  msg += 'Subtotal:    ₹' + Number(inv.subtotal || 0).toFixed(2) + '\n';
+  msg += 'Subtotal:    Rs.' + Number(inv.subtotal || 0).toFixed(2) + '\n';
   if(Number(inv.discount) > 0){
-    msg += 'Discount:    -₹' + Number(inv.discount).toFixed(2) + '\n';
+    msg += 'Discount:    -Rs.' + Number(inv.discount).toFixed(2) + '\n';
   }
   if(inv.gst_enabled && Number(inv.gst_amount) > 0){
-    msg += 'GST (incl.): ₹' + Number(inv.gst_amount).toFixed(2) + '\n';
+    msg += 'GST (incl.): Rs.' + Number(inv.gst_amount).toFixed(2) + '\n';
   }
-  msg += '*TOTAL:       ₹' + Number(inv.total || 0).toFixed(2) + '*\n';
-  msg += 'Paid:        ₹' + Number(inv.paid || 0).toFixed(2) + '\n';
-  msg += '*Due:         ₹' + Number(inv.due  || 0).toFixed(2) + '*\n';
+  msg += '*TOTAL:       Rs.' + Number(inv.total || 0).toFixed(2) + '*\n';
+  msg += 'Paid:        Rs.' + Number(inv.paid || 0).toFixed(2) + '\n';
+  msg += '*Due:         Rs.' + Number(inv.due  || 0).toFixed(2) + '*\n';
   msg += '\n';
 
-  msg += (SETTINGS.print_footer || 'Thank you! Get well soon 💊') + '\n';
+  msg += (SETTINGS.print_footer || 'Thank you! Get well soon') + '\n';
   msg += 'Medicines once sold are not returnable.\n';
 
   window.open(waLink(phone, msg), '_blank');
@@ -7922,8 +7893,6 @@ function sendInvoiceWhatsAppText(inv, items, phone){
 
 /* ══════════════════════════════════════════════════════════════════
    7. WHATSAPP — PDF SHARE
-   Uses native share sheet if available (Android/iOS).
-   Desktop fallback: downloads PDF + opens WhatsApp with a text.
    ══════════════════════════════════════════════════════════════════ */
 async function sendInvoiceWhatsAppPDF(inv, items, phone){
   if(!phone){ toast('No phone number on this invoice', 'error'); return; }
@@ -7933,14 +7902,12 @@ async function sendInvoiceWhatsAppPDF(inv, items, phone){
     return;
   }
 
-  /* Build the PDF */
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF('p', 'mm', 'a4');
 
   const shopName = SETTINGS.shop_name || 'MediStore';
   const custName = inv.customer_name || 'Walk-in';
 
-  /* Header */
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.text(shopName, 14, 18);
@@ -7989,12 +7956,11 @@ async function sendInvoiceWhatsAppPDF(inv, items, phone){
     doc.text(String(inv.prescription_no), 40, iy + 30);
   }
 
-  /* Items table */
   const startY = iy + (inv.customer_phone ? 38 : 30);
   const body = items.map(it => [
     String(it.product_name || ''),
-    String(it.batch_no || '—'),
-    it.expiry_date ? fmtExpiryShort(it.expiry_date) : '—',
+    String(it.batch_no || '-'),
+    it.expiry_date ? fmtExpiryShort(it.expiry_date) : '-',
     fmtNum(it.qty) + ' ' + (it.unit || ''),
     Number(it.price || 0).toFixed(2),
     Number(it.total || 0).toFixed(2)
@@ -8014,43 +7980,41 @@ async function sendInvoiceWhatsAppPDF(inv, items, phone){
     margin: { left: 14, right: 14 }
   });
 
-  /* Totals */
   let y = doc.lastAutoTable.finalY + 8;
   const rightX = 196;
   const labelX = 130;
 
   doc.setFontSize(10);
   doc.text('Subtotal:', labelX, y);
-  doc.text('₹' + Number(inv.subtotal || 0).toFixed(2), rightX, y, { align: 'right' });
+  doc.text('Rs.' + Number(inv.subtotal || 0).toFixed(2), rightX, y, { align: 'right' });
   y += 5;
 
   if(Number(inv.discount) > 0){
     doc.text('Discount:', labelX, y);
-    doc.text('- ₹' + Number(inv.discount).toFixed(2), rightX, y, { align: 'right' });
+    doc.text('- Rs.' + Number(inv.discount).toFixed(2), rightX, y, { align: 'right' });
     y += 5;
   }
   if(inv.gst_enabled && Number(inv.gst_amount) > 0){
     doc.text('GST (included):', labelX, y);
-    doc.text('₹' + Number(inv.gst_amount).toFixed(2), rightX, y, { align: 'right' });
+    doc.text('Rs.' + Number(inv.gst_amount).toFixed(2), rightX, y, { align: 'right' });
     y += 5;
   }
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   doc.text('TOTAL:', labelX, y);
-  doc.text('₹' + Number(inv.total || 0).toFixed(2), rightX, y, { align: 'right' });
+  doc.text('Rs.' + Number(inv.total || 0).toFixed(2), rightX, y, { align: 'right' });
   y += 6;
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.text('Paid:', labelX, y);
-  doc.text('₹' + Number(inv.paid || 0).toFixed(2), rightX, y, { align: 'right' });
+  doc.text('Rs.' + Number(inv.paid || 0).toFixed(2), rightX, y, { align: 'right' });
   y += 5;
   doc.text('Due:', labelX, y);
-  doc.text('₹' + Number(inv.due || 0).toFixed(2), rightX, y, { align: 'right' });
+  doc.text('Rs.' + Number(inv.due || 0).toFixed(2), rightX, y, { align: 'right' });
   y += 8;
 
-  /* Footer */
   doc.setFontSize(8);
   doc.setTextColor(120);
   doc.text('Generated ' + new Date().toLocaleString('en-IN'), 14, y);
@@ -8058,7 +8022,6 @@ async function sendInvoiceWhatsAppPDF(inv, items, phone){
   doc.setFontSize(9);
   doc.text(SETTINGS.print_footer || 'Thank you! Get well soon', 105, y + 6, { align: 'center' });
 
-  /* ── Try native share, else fall back ── */
   const filename = 'Invoice-' + (inv.invoice_no || '').replace(/[^\w-]/g, '') + '.pdf';
   const blob = doc.output('blob');
   const file = new File([blob], filename, { type: 'application/pdf' });
@@ -8068,26 +8031,24 @@ async function sendInvoiceWhatsAppPDF(inv, items, phone){
       await navigator.share({
         files: [file],
         title: 'Invoice ' + (inv.invoice_no || ''),
-        text: shopName + ' — Invoice ' + (inv.invoice_no || '')
+        text: shopName + ' - Invoice ' + (inv.invoice_no || '')
       });
       toast('Shared', 'success');
       return;
     }catch(err){
       if(err && err.name === 'AbortError') return;
-      /* fall through to download */
     }
   }
 
-  /* Fallback: download + open WhatsApp with a message */
   doc.save(filename);
   const text =
-    '*' + shopName + '*\n\nInvoice *' + (inv.invoice_no || '') + '* · ' + rs(inv.total) + '\n\n' +
-    'Please find the PDF attached.\n(Downloaded to your device — attach it in this chat.)';
+    '*' + shopName + '*\n\nInvoice *' + (inv.invoice_no || '') + '* - ' + rs(inv.total) + '\n\n' +
+    'Please find the PDF attached.\n(Downloaded to your device - attach it in this chat.)';
   window.open(waLink(phone, text), '_blank');
-  toast('PDF downloaded · attach it in WhatsApp', 'info');
+  toast('PDF downloaded - attach it in WhatsApp', 'info');
 }
 
-console.log('[MediStore] Block 14 loaded · invoice list + view + print + WhatsApp');
+console.log('[MediStore] Block 14 loaded - invoice list + view + print + WhatsApp');
 </script>
 <script>
 /* ══════════════════════════════════════════════════════════════════
@@ -10584,12 +10545,7 @@ console.log('[MediStore] Block 17 loaded · my shop + backup/restore');
 /* Thermal-safe text — replaces non-ASCII chars unsupported by most printers */
 function thermalSafe(s){
   return String(s == null ? '' : s)
-    .replace(/₹/g, 'Rs.')
-    .replace(/×/g, 'x')
-    .replace(/─/g, '-')
-    .replace(/…/g, '...')
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'");
+    .replace(/[^\x00-\x7F]/g, '');   // strip ALL non-ASCII characters
 }
 
 /* Uint8Array → base64 (chunked to avoid stack overflow) */
