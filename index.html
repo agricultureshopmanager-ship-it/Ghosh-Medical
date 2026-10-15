@@ -2633,10 +2633,11 @@ const NAV_LINKS = [
     { href:'#/customers', icon:'👥', label:'Customers' },
     { href:'#/doctors',   icon:'🩺', label:'Doctors'   }
   ]},
-  { group:'Inventory', items:[
-    { href:'#/products',  icon:'💊', label:'Products'  },
-    { href:'#/batches',   icon:'📦', label:'Batches'   },
-    { href:'#/purchases', icon:'🛒', label:'Purchases' }
+    { group:'Inventory', items:[
+    { href:'#/products',        icon:'💊', label:'Products'        },
+    { href:'#/batches',         icon:'📦', label:'Batches'         },
+    { href:'#/purchases',       icon:'🛒', label:'Purchases'       },
+    { href:'#/inventory-value', icon:'💰', label:'Inventory Value' }
   ]},
   { group:'Transactions', items:[
     { href:'#/invoices', icon:'📄', label:'Invoices' },
@@ -9951,6 +9952,719 @@ function renderShopHealth(content){
 
 console.log('[MediStore] Block 16 loaded · reports + P&L + margin + shop health');
 </script>
+     <!-- ══════════════════════════════════════════════════════════════════
+     BLOCK 16.5 — INVENTORY VALUE
+     Cost + Sell + Category + Vendor + ABC + Risk + Top 10 + Charts
+     ══════════════════════════════════════════════════════════════════ -->
+<script>
+function renderInventoryValue(content){
+  const today = todayStr();
+  const NEAR_DAYS = Number(SETTINGS.near_expiry_days) || 60;
+
+  /* ─────────────────────────────────────────────
+     Valuation
+     ───────────────────────────────────────────── */
+  function productValuation(p){
+    let qty = 0, costValue = 0, sellValue = 0;
+    let expiredQty = 0, expiredCostValue = 0;
+    let nearExpiryQty = 0, nearExpiryCostValue = 0;
+
+    if(p.batch_managed === false){
+      qty       = Number(p.stock) || 0;
+      costValue = qty * (Number(p.cost) || 0);
+      sellValue = qty * (Number(p.selling_price || p.mrp) || 0);
+    } else {
+      DB.product_batches
+        .filter(b => b.product_id === p.id)
+        .forEach(b => {
+          const q = Number(b.qty) || 0;
+          if(q <= 0) return;
+          const isExpired = b.expiry_date && b.expiry_date < today;
+          const isNear    = !isExpired && b.expiry_date && daysToExpiry(b.expiry_date) <= NEAR_DAYS;
+
+          if(isExpired){
+            expiredQty       += q;
+            expiredCostValue += q * (Number(b.cost) || 0);
+          } else {
+            qty       += q;
+            costValue += q * (Number(b.cost) || 0);
+            sellValue += q * (Number(b.selling_price || b.mrp) || 0);
+            if(isNear){
+              nearExpiryQty       += q;
+              nearExpiryCostValue += q * (Number(b.cost) || 0);
+            }
+          }
+        });
+    }
+
+    const profit  = sellValue - costValue;
+    const margin  = sellValue > 0 ? (profit / sellValue) * 100 : 0;
+    const avgCost = qty > 0 ? costValue / qty : 0;
+
+    return {
+      product: p, qty, costValue, sellValue, profit, margin, avgCost,
+      expiredQty, expiredCostValue, nearExpiryQty, nearExpiryCostValue
+    };
+  }
+
+  const valuations = DB.products.map(productValuation);
+
+  /* Totals */
+  const T = valuations.reduce((a, v) => {
+    a.qty                 += v.qty;
+    a.costValue           += v.costValue;
+    a.sellValue           += v.sellValue;
+    a.profit              += v.profit;
+    a.expiredQty          += v.expiredQty;
+    a.expiredCostValue    += v.expiredCostValue;
+    a.nearExpiryQty       += v.nearExpiryQty;
+    a.nearExpiryCostValue += v.nearExpiryCostValue;
+    return a;
+  }, {
+    qty:0, costValue:0, sellValue:0, profit:0,
+    expiredQty:0, expiredCostValue:0,
+    nearExpiryQty:0, nearExpiryCostValue:0
+  });
+
+  const totalMargin  = T.sellValue > 0 ? (T.profit / T.sellValue) * 100 : 0;
+  const liveProducts = valuations.filter(v => v.qty > 0).length;
+
+  /* Category breakdown */
+  const catMap = {};
+  valuations.forEach(v => {
+    if(v.qty <= 0 && v.expiredQty <= 0) return;
+    const cat = v.product.category || 'Uncategorised';
+    catMap[cat] = catMap[cat] || { name:cat, qty:0, costValue:0, sellValue:0, profit:0, count:0 };
+    catMap[cat].qty       += v.qty;
+    catMap[cat].costValue += v.costValue;
+    catMap[cat].sellValue += v.sellValue;
+    catMap[cat].profit    += v.profit;
+    catMap[cat].count     += 1;
+  });
+  const categories = Object.values(catMap).sort((a, b) => b.costValue - a.costValue);
+
+  /* Vendor breakdown */
+  const venMap = {};
+  valuations.forEach(v => {
+    if(v.costValue <= 0 && v.expiredCostValue <= 0) return;
+    const sup = v.product.supplier_id ? DB.suppliers.find(s => s.id === v.product.supplier_id) : null;
+    const key = sup ? sup.id : '__none__';
+    const name = sup ? sup.name : 'Unassigned';
+    venMap[key] = venMap[key] || { id:key, name, qty:0, costValue:0, sellValue:0, productCount:0 };
+    venMap[key].qty          += v.qty;
+    venMap[key].costValue    += v.costValue;
+    venMap[key].sellValue    += v.sellValue;
+    venMap[key].productCount += 1;
+  });
+  const vendors = Object.values(venMap).sort((a, b) => b.costValue - a.costValue);
+
+  /* ABC Analysis */
+  const sortedByValue = valuations
+    .filter(v => v.costValue > 0)
+    .sort((a, b) => b.costValue - a.costValue);
+
+  let cum = 0;
+  sortedByValue.forEach(v => { cum += v.costValue; v._cum = cum; });
+
+  const abc = { A:{count:0,cost:0}, B:{count:0,cost:0}, C:{count:0,cost:0} };
+  sortedByValue.forEach(v => {
+    const pct = T.costValue > 0 ? (v._cum / T.costValue) * 100 : 0;
+    const cls = pct <= 70 ? 'A' : pct <= 90 ? 'B' : 'C';
+    abc[cls].count += 1;
+    abc[cls].cost  += v.costValue;
+  });
+
+  const top10 = sortedByValue.slice(0, 10);
+
+  /* Dead stock (no sales in 60 days) — excludes return credit-notes */
+  const sixtyAgo = new Date();
+  sixtyAgo.setDate(sixtyAgo.getDate() - 60);
+  const cutoff60 = sixtyAgo.toISOString().slice(0,10);
+
+  const soldRecentProductIds = new Set();
+  DB.invoices.forEach(inv => {
+    if(String(inv.invoice_no || '').startsWith(RETURN_PREFIX)) return;
+    const d = txDate(inv, 'invoice_date');
+    if(d < cutoff60) return;
+    DB.invoice_items
+      .filter(it => it.invoice_id === inv.id)
+      .forEach(it => { if(it.product_id) soldRecentProductIds.add(it.product_id); });
+  });
+
+  const deadStock = valuations.filter(v =>
+    v.costValue > 0 && v.product.id && !soldRecentProductIds.has(v.product.id)
+  );
+  const deadStockValue = deadStock.reduce((s, v) => s + v.costValue, 0);
+
+  /* Turnover (30d) — excludes return credit-notes */
+  const thirtyAgo = new Date();
+  thirtyAgo.setDate(thirtyAgo.getDate() - 30);
+  const cutoff30 = thirtyAgo.toISOString().slice(0,10);
+
+  let sold30Cost = 0;
+  DB.invoices.forEach(inv => {
+    if(String(inv.invoice_no || '').startsWith(RETURN_PREFIX)) return;
+    const d = txDate(inv, 'invoice_date');
+    if(d < cutoff30) return;
+    DB.invoice_items
+      .filter(it => it.invoice_id === inv.id)
+      .forEach(it => {
+        const p = DB.products.find(x => x.id === it.product_id);
+        let cpu = 0;
+        if(it.batch_id){
+          const b = DB.product_batches.find(x => x.id === it.batch_id);
+          cpu = b ? Number(b.cost || 0) : (p ? Number(p.cost || 0) : 0);
+        } else if(p){
+          cpu = Number(p.cost || 0);
+        }
+        sold30Cost += (Number(it.qty) || 0) * cpu;
+      });
+  });
+  const turnover30 = T.costValue > 0 ? (sold30Cost / T.costValue) : 0;
+
+  /* ═════════════════════════════════════════════
+     RENDER
+     ═════════════════════════════════════════════ */
+  content.innerHTML = `
+    <div class="page-head">
+      <div>
+        <h1>Inventory Value</h1>
+        <p>Cost &amp; sell valuation · category · vendor · risk · ABC</p>
+      </div>
+      <div class="page-actions">
+        <button class="btn btn-ghost btn-sm" id="iv-export">📄 Export PDF</button>
+      </div>
+    </div>
+
+    <!-- HERO: Cost vs Sell -->
+    <div class="grid-2" style="margin-bottom:14px">
+      <div class="card" style="background:linear-gradient(135deg,#0d9488 0%,#059669 100%);color:#fff;border:0;padding:20px;position:relative;overflow:hidden">
+        <div style="position:absolute;right:-30px;top:-30px;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,.08);pointer-events:none"></div>
+        <div style="font-size:11px;opacity:.9;text-transform:uppercase;letter-spacing:.6px;font-weight:700">💰 Total Cost Value</div>
+        <div style="font-size:30px;font-weight:800;letter-spacing:-.8px;margin-top:6px;line-height:1.1">${rs(T.costValue)}</div>
+        <div style="font-size:12px;opacity:.9;margin-top:8px">Money paid for live stock</div>
+      </div>
+      <div class="card" style="background:linear-gradient(135deg,#3b82f6 0%,#2563eb 100%);color:#fff;border:0;padding:20px;position:relative;overflow:hidden">
+        <div style="position:absolute;right:-30px;top:-30px;width:140px;height:140px;border-radius:50%;background:rgba(255,255,255,.08);pointer-events:none"></div>
+        <div style="font-size:11px;opacity:.9;text-transform:uppercase;letter-spacing:.6px;font-weight:700">🏷 Total Sell Value</div>
+        <div style="font-size:30px;font-weight:800;letter-spacing:-.8px;margin-top:6px;line-height:1.1">${rs(T.sellValue)}</div>
+        <div style="font-size:12px;opacity:.9;margin-top:8px">If sold at current prices</div>
+      </div>
+    </div>
+
+    <!-- KPI ROW -->
+    <div class="grid-4" style="margin-bottom:14px">
+      <div class="kpi">
+        <div class="kpi-head">
+          <div class="kpi-label">Potential Profit</div>
+          <div class="kpi-icon" style="background:${T.profit >= 0 ? 'var(--green-bg)' : 'var(--red-bg)'};color:${T.profit >= 0 ? 'var(--green)' : 'var(--red)'}">${T.profit >= 0 ? '📈' : '📉'}</div>
+        </div>
+        <div class="kpi-value" style="color:${T.profit >= 0 ? 'var(--green)' : 'var(--red)'}">${rs(T.profit)}</div>
+        <div class="kpi-trend">Sell − Cost</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-head">
+          <div class="kpi-label">Avg Margin</div>
+          <div class="kpi-icon" style="background:var(--purple-bg);color:var(--purple)">%</div>
+        </div>
+        <div class="kpi-value">${totalMargin.toFixed(1)}%</div>
+        <div class="kpi-trend">on sell value</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-head">
+          <div class="kpi-label">Turnover (30d)</div>
+          <div class="kpi-icon" style="background:var(--blue-100);color:var(--blue-700)">🔄</div>
+        </div>
+        <div class="kpi-value">${turnover30.toFixed(2)}x</div>
+        <div class="kpi-trend">sold / on-hand</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-head">
+          <div class="kpi-label">Live Items</div>
+          <div class="kpi-icon" style="background:var(--teal-50);color:var(--teal-600)">📦</div>
+        </div>
+        <div class="kpi-value">${liveProducts}</div>
+        <div class="kpi-trend">${fmtNum(T.qty)} units</div>
+      </div>
+    </div>
+
+    <!-- RISK TILES -->
+    <div class="tile-row" style="margin-bottom:14px">
+      <div class="tile tile-amber" style="cursor:default">
+        <div class="tile-icon">⏰</div>
+        <div class="num" style="font-size:20px">${rs(T.nearExpiryCostValue)}</div>
+        <div class="lbl">Expiring ≤ ${NEAR_DAYS}d (${fmtNum(T.nearExpiryQty)} units)</div>
+      </div>
+      <div class="tile tile-red" style="cursor:default">
+        <div class="tile-icon">⚠️</div>
+        <div class="num" style="font-size:20px">${rs(T.expiredCostValue)}</div>
+        <div class="lbl">Already expired (${fmtNum(T.expiredQty)} units)</div>
+      </div>
+      <div class="tile tile-pink" style="cursor:default">
+        <div class="tile-icon">💤</div>
+        <div class="num" style="font-size:20px">${rs(deadStockValue)}</div>
+        <div class="lbl">Dead stock (${deadStock.length} products, 60d)</div>
+      </div>
+    </div>
+
+    <!-- CHARTS -->
+    <div class="grid-2" style="margin-bottom:14px">
+      <div class="card">
+        <div class="card-title">Cost Value by Category</div>
+        <div style="position:relative;height:280px"><canvas id="iv-cat-chart"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Cost vs Sell by Category</div>
+        <div style="position:relative;height:280px"><canvas id="iv-bar-chart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ABC ANALYSIS -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">ABC Analysis <small>Pareto — where your money is concentrated</small></div>
+      <div class="grid-3">
+        <div style="padding:16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px">
+          <div style="font-weight:800;color:#15803d;font-size:18px">Class A</div>
+          <div class="text-xs muted" style="margin:4px 0 10px">Top 70% of value · protect &amp; count often</div>
+          <div style="font-size:22px;font-weight:800;color:#15803d;letter-spacing:-.4px">${rs(abc.A.cost)}</div>
+          <div class="text-sm muted" style="margin-top:6px">${abc.A.count} product${abc.A.count === 1 ? '' : 's'}</div>
+        </div>
+        <div style="padding:16px;background:#fffbeb;border:1px solid #fde68a;border-radius:12px">
+          <div style="font-weight:800;color:#b45309;font-size:18px">Class B</div>
+          <div class="text-xs muted" style="margin:4px 0 10px">Next 20% of value</div>
+          <div style="font-size:22px;font-weight:800;color:#b45309;letter-spacing:-.4px">${rs(abc.B.cost)}</div>
+          <div class="text-sm muted" style="margin-top:6px">${abc.B.count} product${abc.B.count === 1 ? '' : 's'}</div>
+        </div>
+        <div style="padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px">
+          <div style="font-weight:800;color:#475569;font-size:18px">Class C</div>
+          <div class="text-xs muted" style="margin:4px 0 10px">Last 10% of value · low priority</div>
+          <div style="font-size:22px;font-weight:800;color:#475569;letter-spacing:-.4px">${rs(abc.C.cost)}</div>
+          <div class="text-sm muted" style="margin-top:6px">${abc.C.count} product${abc.C.count === 1 ? '' : 's'}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOP 10 -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">Top 10 Most Valuable Products <small>By cost value</small></div>
+      ${top10.length === 0
+        ? '<p class="text-sm muted-2 text-center" style="padding:20px 0">No stock yet</p>'
+        : `<div class="tbl-wrap responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Product</th>
+                  <th style="text-align:right">Qty</th>
+                  <th style="text-align:right">Cost Value</th>
+                  <th style="text-align:right">Sell Value</th>
+                  <th style="text-align:right">Profit</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${top10.map((v, i) => `
+                  <tr>
+                    <td><b>${i + 1}</b></td>
+                    <td>
+                      <strong>${esc(v.product.name)}</strong>
+                      ${v.product.category ? `<div class="text-xs muted">${esc(v.product.category)}</div>` : ''}
+                    </td>
+                    <td style="text-align:right">${fmtNum(v.qty)} ${esc(v.product.unit || '')}</td>
+                    <td style="text-align:right;color:var(--teal-700);font-weight:600">${rs(v.costValue)}</td>
+                    <td style="text-align:right;color:var(--blue-700)">${rs(v.sellValue)}</td>
+                    <td style="text-align:right;color:${v.profit >= 0 ? 'var(--green)' : 'var(--red)'}">${rs(v.profit)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+          <div class="mobile-list">
+            ${top10.map((v, i) => `
+              <div class="mobile-list-item">
+                <div class="mli-head">
+                  <div class="mli-title">${i + 1}. ${esc(v.product.name)}</div>
+                  <div class="mli-amt" style="color:var(--teal-700)">${rs(v.costValue)}</div>
+                </div>
+                <div class="mli-body">
+                  ${v.product.category ? esc(v.product.category) + ' · ' : ''}${fmtNum(v.qty)} ${esc(v.product.unit || '')}
+                </div>
+              </div>
+            `).join('')}
+          </div>`}
+    </div>
+
+    <!-- CATEGORY BREAKDOWN -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">Category Breakdown <small>${categories.length} categor${categories.length === 1 ? 'y' : 'ies'}</small></div>
+      ${categories.length === 0
+        ? '<p class="text-sm muted-2 text-center" style="padding:20px 0">No data</p>'
+        : `<div class="tbl-wrap responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th style="text-align:right">Products</th>
+                  <th style="text-align:right">Qty</th>
+                  <th style="text-align:right">Cost Value</th>
+                  <th style="text-align:right">Sell Value</th>
+                  <th style="text-align:right">Profit</th>
+                  <th style="text-align:right">Margin</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${categories.map(c => {
+                  const p = c.sellValue - c.costValue;
+                  const m = c.sellValue > 0 ? (p / c.sellValue) * 100 : 0;
+                  return `<tr>
+                    <td><strong>${esc(c.name)}</strong></td>
+                    <td style="text-align:right">${c.count}</td>
+                    <td style="text-align:right">${fmtNum(c.qty)}</td>
+                    <td style="text-align:right;color:var(--teal-700);font-weight:600">${rs(c.costValue)}</td>
+                    <td style="text-align:right;color:var(--blue-700)">${rs(c.sellValue)}</td>
+                    <td style="text-align:right;color:${p >= 0 ? 'var(--green)' : 'var(--red)'}">${rs(p)}</td>
+                    <td style="text-align:right;color:${m >= 0 ? 'var(--green)' : 'var(--red)'}">${m.toFixed(1)}%</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>`}
+    </div>
+
+    <!-- VENDOR BREAKDOWN -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">Vendor Breakdown <small>${vendors.length} vendor${vendors.length === 1 ? '' : 's'}</small></div>
+      ${vendors.length === 0
+        ? '<p class="text-sm muted-2 text-center" style="padding:20px 0">No vendor data</p>'
+        : `<div class="tbl-wrap responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Vendor</th>
+                  <th style="text-align:right">Products</th>
+                  <th style="text-align:right">Qty</th>
+                  <th style="text-align:right">Cost Value</th>
+                  <th style="text-align:right">Sell Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${vendors.map(v => `
+                  <tr>
+                    <td><strong>${esc(v.name)}</strong></td>
+                    <td style="text-align:right">${v.productCount}</td>
+                    <td style="text-align:right">${fmtNum(v.qty)}</td>
+                    <td style="text-align:right;color:var(--teal-700);font-weight:600">${rs(v.costValue)}</td>
+                    <td style="text-align:right;color:var(--blue-700)">${rs(v.sellValue)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>`}
+    </div>
+
+    <!-- FILTER + FULL TABLE -->
+    <div class="card" style="margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+      <div style="flex:2;min-width:200px">
+        <label class="label">Search</label>
+        <input class="input" id="iv-search" placeholder="Product, company or category...">
+      </div>
+      <div style="flex:1;min-width:160px">
+        <label class="label">Sort by</label>
+        <select class="input" id="iv-sort">
+          <option value="cost-desc">Cost value (high first)</option>
+          <option value="sell-desc">Sell value (high first)</option>
+          <option value="profit-desc">Profit (high first)</option>
+          <option value="margin-desc">Margin % (high first)</option>
+          <option value="qty-desc">Qty (high first)</option>
+          <option value="name">Name A–Z</option>
+        </select>
+      </div>
+      <div style="flex:0 0 auto">
+        <label class="label">&nbsp;</label>
+        <select class="input" id="iv-filter">
+          <option value="">All products</option>
+          <option value="instock">Only with stock</option>
+          <option value="expired">Has expired stock</option>
+          <option value="near">Near expiry</option>
+          <option value="dead">Dead stock (no sales 60d)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card card-flat" style="padding:0;background:transparent;border:0;box-shadow:none">
+      <div class="tbl-wrap responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th style="text-align:right">Qty</th>
+              <th style="text-align:right">Cost Value</th>
+              <th style="text-align:right">Sell Value</th>
+              <th style="text-align:right">Profit</th>
+              <th style="text-align:right">Margin</th>
+            </tr>
+          </thead>
+          <tbody id="iv-body"></tbody>
+        </table>
+      </div>
+      <div class="mobile-list" id="iv-mobile"></div>
+    </div>
+
+    <!-- TOTALS FOOTER -->
+    <div class="card" style="margin-top:14px;background:#f8fafc">
+      <div style="display:flex;justify-content:space-between;font-size:14px;padding:4px 0">
+        <span class="muted">Total Cost Value (live stock)</span>
+        <b style="color:var(--teal-700)">${rs(T.costValue)}</b>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:14px;padding:4px 0">
+        <span class="muted">Total Sell Value (live stock)</span>
+        <b style="color:var(--blue-700)">${rs(T.sellValue)}</b>
+      </div>
+      <div class="divider"></div>
+      <div style="display:flex;justify-content:space-between;font-size:16px">
+        <b>Potential Profit if all sold</b>
+        <b style="color:${T.profit >= 0 ? 'var(--green)' : 'var(--red)'}">${rs(T.profit)}</b>
+      </div>
+    </div>
+
+    <div class="text-center text-xs muted-2" style="padding:14px 0">
+      Generated ${new Date().toLocaleString('en-IN')}
+    </div>
+  `;
+
+  /* ─────────────────────────────────────────────
+     Charts
+     ───────────────────────────────────────────── */
+  charts.forEach(c => { try { c.destroy(); } catch(e){} });
+  charts = [];
+
+  const CHART_COLORS = ['#0d9488','#3b82f6','#8b5cf6','#f59e0b','#ef4444','#10b981','#06b6d4','#ec4899','#84cc16','#f97316','#6366f1','#14b8a6'];
+
+  const catCtx = $('#iv-cat-chart');
+  if(catCtx && categories.length){
+    charts.push(new Chart(catCtx, {
+      type: 'doughnut',
+      data: {
+        labels: categories.map(c => c.name),
+        datasets: [{
+          data: categories.map(c => c.costValue),
+          backgroundColor: categories.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 10, padding: 8, font: { size: 10 } } },
+          tooltip: { callbacks: { label: c => c.label + ': ' + rs(c.parsed) } }
+        },
+        cutout: '60%'
+      }
+    }));
+  } else if(catCtx){
+    catCtx.parentElement.innerHTML = '<div class="empty" style="padding:40px 20px"><div class="empty-icon">📊</div><h3>No category data</h3></div>';
+  }
+
+  const barCtx = $('#iv-bar-chart');
+  if(barCtx && categories.length){
+    const topCats = categories.slice(0, 8);
+    charts.push(new Chart(barCtx, {
+      type: 'bar',
+      data: {
+        labels: topCats.map(c => c.name),
+        datasets: [
+          { label: 'Cost', data: topCats.map(c => c.costValue), backgroundColor: '#0d9488', borderRadius: 4 },
+          { label: 'Sell', data: topCats.map(c => c.sellValue), backgroundColor: '#3b82f6', borderRadius: 4 }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 10, padding: 8, font: { size: 10 } } },
+          tooltip: { callbacks: { label: c => c.dataset.label + ': ' + rs(c.parsed.y) } }
+        },
+        scales: {
+          y: { beginAtZero: true, ticks: { callback: v => '₹' + Number(v).toLocaleString('en-IN'), font: { size: 9 } }, grid: { color: '#f1f5f9' } },
+          x: { grid: { display: false }, ticks: { font: { size: 9 } } }
+        }
+      }
+    }));
+  } else if(barCtx){
+    barCtx.parentElement.innerHTML = '<div class="empty" style="padding:40px 20px"><div class="empty-icon">📊</div><h3>No category data</h3></div>';
+  }
+
+  /* ─────────────────────────────────────────────
+     Filter + render main table
+     ───────────────────────────────────────────── */
+  function filtered(){
+    const q      = ($('#iv-search').value || '').toLowerCase().trim();
+    const sortBy = $('#iv-sort').value;
+    const flt    = $('#iv-filter').value;
+
+    let arr = valuations.filter(v => {
+      const p = v.product;
+      const hay = ((p.name || '') + ' ' + (p.company || '') + ' ' + (p.category || '')).toLowerCase();
+      if(q && !hay.includes(q)) return false;
+
+      if(flt === 'instock' && v.qty <= 0) return false;
+      if(flt === 'expired' && v.expiredQty <= 0) return false;
+      if(flt === 'near'    && v.nearExpiryQty <= 0) return false;
+      if(flt === 'dead'    && (v.costValue <= 0 || soldRecentProductIds.has(p.id))) return false;
+      return true;
+    });
+
+    if(sortBy === 'cost-desc')       arr.sort((a, b) => b.costValue - a.costValue);
+    else if(sortBy === 'sell-desc')  arr.sort((a, b) => b.sellValue - a.sellValue);
+    else if(sortBy === 'profit-desc')arr.sort((a, b) => b.profit - a.profit);
+    else if(sortBy === 'margin-desc')arr.sort((a, b) => b.margin - a.margin);
+    else if(sortBy === 'qty-desc')   arr.sort((a, b) => b.qty - a.qty);
+    else if(sortBy === 'name')       arr.sort((a, b) => (a.product.name || '').localeCompare(b.product.name || ''));
+    return arr;
+  }
+
+  function renderList(){
+    const arr = filtered();
+
+    const tbody = $('#iv-body');
+    if(tbody){
+      tbody.innerHTML = arr.length === 0
+        ? `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-2)">No products match</td></tr>`
+        : arr.map(v => {
+            const p = v.product;
+            const marginColor = v.margin >= 20 ? 'var(--green)' : (v.margin >= 0 ? 'var(--text)' : 'var(--red)');
+            const isDead = v.costValue > 0 && !soldRecentProductIds.has(p.id);
+            return `<tr>
+              <td>
+                <strong>${esc(p.name)}</strong>
+                ${p.batch_managed === false ? ' <span class="chip chip-gray" style="font-size:9px">NON-BATCH</span>' : ''}
+                ${isDead ? ' <span class="chip chip-amber" style="font-size:9px">DEAD</span>' : ''}
+                ${v.expiredQty > 0 ? `<div class="text-xs" style="color:var(--red);margin-top:2px">⚠ ${fmtNum(v.expiredQty)} expired</div>` : ''}
+              </td>
+              <td style="text-align:right">${fmtNum(v.qty)}</td>
+              <td style="text-align:right;color:var(--teal-700);font-weight:600">${rs(v.costValue)}</td>
+              <td style="text-align:right;color:var(--blue-700)">${rs(v.sellValue)}</td>
+              <td style="text-align:right;color:${v.profit >= 0 ? 'var(--green)' : 'var(--red)'}">${rs(v.profit)}</td>
+              <td style="text-align:right;color:${marginColor};font-weight:600">${v.margin.toFixed(1)}%</td>
+            </tr>`;
+          }).join('');
+    }
+
+    const mob = $('#iv-mobile');
+    if(mob){
+      mob.innerHTML = arr.length === 0
+        ? `<div class="empty" style="padding:30px 10px"><div class="empty-icon">💰</div><h3>No products match</h3></div>`
+        : arr.map(v => {
+            const p = v.product;
+            const marginColor = v.margin >= 20 ? 'var(--green)' : (v.margin >= 0 ? 'var(--text)' : 'var(--red)');
+            return `
+              <div class="card" style="margin-bottom:8px;padding:12px">
+                <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:8px">
+                  <div style="flex:1;min-width:0">
+                    <div style="font-weight:700;font-size:13px">${esc(p.name)}</div>
+                    <div class="text-xs muted" style="margin-top:3px">
+                      ${p.category ? esc(p.category) + ' · ' : ''}${fmtNum(v.qty)} ${esc(p.unit || '')}
+                    </div>
+                  </div>
+                  <div style="text-align:right;flex-shrink:0">
+                    <div style="font-weight:700;font-size:13px;color:var(--teal-700)">${rs(v.costValue)}</div>
+                    <div class="text-xs muted">cost</div>
+                  </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:11px">
+                  <div style="padding:6px;background:#f8fafc;border-radius:6px;text-align:center">
+                    <div class="muted">Sell</div>
+                    <div style="font-weight:700;color:var(--blue-700);margin-top:2px">${rs(v.sellValue)}</div>
+                  </div>
+                  <div style="padding:6px;background:#f8fafc;border-radius:6px;text-align:center">
+                    <div class="muted">Profit</div>
+                    <div style="font-weight:700;color:${v.profit >= 0 ? 'var(--green)' : 'var(--red)'};margin-top:2px">${rs(v.profit)}</div>
+                  </div>
+                  <div style="padding:6px;background:#f8fafc;border-radius:6px;text-align:center">
+                    <div class="muted">Margin</div>
+                    <div style="font-weight:700;color:${marginColor};margin-top:2px">${v.margin.toFixed(1)}%</div>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('');
+    }
+  }
+
+  ['iv-search', 'iv-sort', 'iv-filter'].forEach(id => {
+    const el = $('#' + id);
+    if(el){ el.oninput = renderList; el.onchange = renderList; }
+  });
+
+  renderList();
+
+  /* ─────────────────────────────────────────────
+     Export PDF
+     ───────────────────────────────────────────── */
+  const expBtn = content.querySelector('#iv-export');
+  if(expBtn){
+    expBtn.onclick = () => {
+      if(!window.PDFMaker || typeof window.PDFMaker.report !== 'function'){
+        toast('PDF module not loaded', 'error');
+        return;
+      }
+      window.PDFMaker.report({
+        title: 'Inventory Value Report',
+        meta: 'Generated ' + new Date().toLocaleString('en-IN'),
+        kpis: [
+          ['Total Cost Value', rs(T.costValue)],
+          ['Total Sell Value', rs(T.sellValue)],
+          ['Potential Profit', rs(T.profit)],
+          ['Avg Margin', totalMargin.toFixed(1) + '%']
+        ],
+        tables: [
+          {
+            title: 'Category Breakdown',
+            head: ['Category', 'Products', 'Qty', 'Cost Value', 'Sell Value', 'Profit'],
+            rows: categories.map(c => {
+              const p = c.sellValue - c.costValue;
+              return [
+                c.name,
+                String(c.count),
+                fmtNum(c.qty),
+                'Rs.' + Number(c.costValue).toFixed(2),
+                'Rs.' + Number(c.sellValue).toFixed(2),
+                'Rs.' + Number(p).toFixed(2)
+              ];
+            })
+          },
+          {
+            title: 'Vendor Breakdown',
+            head: ['Vendor', 'Products', 'Qty', 'Cost Value', 'Sell Value'],
+            rows: vendors.map(v => [
+              v.name,
+              String(v.productCount),
+              fmtNum(v.qty),
+              'Rs.' + Number(v.costValue).toFixed(2),
+              'Rs.' + Number(v.sellValue).toFixed(2)
+            ])
+          },
+          {
+            title: 'Top 10 Most Valuable Products',
+            head: ['#', 'Product', 'Qty', 'Cost Value', 'Sell Value', 'Profit'],
+            rows: top10.map((v, i) => [
+              String(i + 1),
+              v.product.name,
+              fmtNum(v.qty),
+              'Rs.' + Number(v.costValue).toFixed(2),
+              'Rs.' + Number(v.sellValue).toFixed(2),
+              'Rs.' + Number(v.profit).toFixed(2)
+            ])
+          }
+        ],
+        filename: 'Inventory-Value-' + todayStr() + '.pdf'
+      });
+    };
+  }
+}
+
+console.log('[MediStore] Block 16.5 loaded · inventory value');
+</script>
 <script>
 /* ══════════════════════════════════════════════════════════════════
    BLOCK 17 — MY SHOP · BACKUP / RESTORE
@@ -12024,7 +12738,8 @@ async function route(){
     if(path === '/suppliers')    return renderSuppliers(content);
     if(path === '/products')     return renderProducts(content);
     if(path === '/batches')      return renderBatches(content);
-    if(path === '/purchases')    return renderPurchases(content);
+        if(path === '/purchases')    return renderPurchases(content);
+    if(path === '/inventory-value') return renderInventoryValue(content);
     if(path === '/invoices')     return renderInvoices(content);
     if(path === '/new-invoice'){
       return renderNewInvoice(content, {
