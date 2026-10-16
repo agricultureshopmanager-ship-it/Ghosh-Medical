@@ -3738,13 +3738,24 @@ async function renderCustomerProfile(content, id){
       <div class="card-title">Statement <small>Running balance</small></div>
       ${(() => {
         const tl = [
-          ...invs.map(i => ({ date: txDate(i, 'invoice_date'), type: 'Invoice', ref: i.invoice_no, id: i.id, debit: Number(i.total || 0), credit: 0 })),
-          ...pays.map(p => ({ date: txDate(p, 'payment_date'), type: 'Payment', ref: p.mode || 'Payment', id: p.id, debit: 0, credit: Number(p.amount || 0) }))
-        ].sort((a, b) => a.date.localeCompare(b.date));
-
-        if(!tl.length){
-          return '<p class="text-sm muted-2 text-center" style="padding:20px 0">No transactions yet</p>';
-        }
+  ...invs.map(i => ({ 
+      date: txDate(i, 'invoice_date'), 
+      type: 'Invoice', 
+      ref: i.invoice_no, 
+      id: i.id, 
+      // FIX: Subtract the amount already paid at the time of billing
+      debit: Number(i.total || 0) - Number(i.paid || 0), 
+      credit: 0 
+  })),
+  ...pays.map(p => ({ 
+      date: txDate(p, 'payment_date'), 
+      type: 'Payment', 
+      ref: p.mode || 'Payment', 
+      id: p.id, 
+      debit: 0, 
+      credit: Number(p.amount || 0) 
+  }))
+].sort((a, b) => a.date.localeCompare(b.date));
 
         let bal = 0;
         const rows = tl.map(x => {
