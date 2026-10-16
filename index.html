@@ -12838,15 +12838,16 @@ console.log('[MediStore] Block 20 loaded · router + boot · APP READY');
 </script>
 <script>
 /* ══════════════════════════════════════════════════════════════
-   BLOCK 21 — CLOUD BACKUP TO GOOGLE DRIVE (via Cloudflare Worker)
+   BLOCK 21 — CLOUD BACKUP TO GOOGLE DRIVE (via Apps Script)
    Shop: Dibakar-Ghosh (Ghosh Medical)
    ══════════════════════════════════════════════════════════════ */
 (function(){
   'use strict';
 
-  var WORKER_URL = 'https://shopsteward-backup.shopsteward-in.workers.dev';  /* ← CHANGE THIS */
-  var SHOP_ID    = 'dibakar';
-  var SHOP_KEY   = 'dib-7xk2m9p4';
+  var SCRIPT_URL    = 'https://script.google.com/macros/s/AKfycbxDwtoWPSepsymJzAdEb7js_LFJeYwk-ZzxYMtRi7i5NElEraj8S8LptW-pJ2Q7La3A/exec';
+  var SHARED_SECRET = 'PASTE-THE-SAME-STRING-YOU-PUT-IN-APPS-SCRIPT';
+  var SHOP_ID       = 'dibakar';
+  var SHOP_KEY      = 'dib-7xk2m9p4';
 
   var LS_LAST_CLOUD = 'sd_last_cloud_backup_date';
   var LS_LAST_FAIL  = 'sd_last_cloud_backup_fail';
@@ -12864,7 +12865,6 @@ console.log('[MediStore] Block 20 loaded · router + boot · APP READY');
     var payload = {
       app: 'StationeryDistributorManager',
       version: (typeof APP_VERSION !== 'undefined' ? APP_VERSION : '1.0.0'),
-      shop_id: SHOP_ID,
       exported_at: new Date().toISOString(),
       settings: Object.assign({}, (typeof SETTINGS !== 'undefined' ? SETTINGS : {})),
     };
@@ -12881,16 +12881,22 @@ console.log('[MediStore] Block 20 loaded · router + boot · APP READY');
   }
 
   function postToWorker(payload){
-    var url = WORKER_URL + '/?shop=' + encodeURIComponent(SHOP_ID) +
-              '&key=' + encodeURIComponent(SHOP_KEY);
-    return fetch(url, {
+    payload.secret   = SHARED_SECRET;
+    payload.shop_id  = SHOP_ID;
+    payload.shop_key = SHOP_KEY;
+
+    return fetch(SCRIPT_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      /* text/plain avoids the CORS preflight Apps Script can't handle */
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
       keepalive: true,
     }).then(function(r){
-      return r.json().then(function(j){
-        if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      return r.text().then(function(txt){
+        var j;
+        try { j = JSON.parse(txt); }
+        catch(e){ throw new Error('Non-JSON response: ' + txt.slice(0, 120)); }
+        if (!j.ok) throw new Error(j.error || 'Unknown error');
         return j;
       });
     });
