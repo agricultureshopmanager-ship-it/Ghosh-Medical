@@ -6286,7 +6286,12 @@ function openPurchaseBillForm(supplier, existing){
               <td><strong>${esc(l.product_name)}</strong></td>
               <td><input class="input" data-i="${i}" data-f="batch_no" value="${esc(l.batch_no || '')}" placeholder="Batch" style="width:80px;padding:5px 7px;font-size:12px"></td>
               <td><input class="input" type="date" data-i="${i}" data-f="expiry_date" value="${esc(l.expiry_date || '')}" style="width:120px;padding:5px 7px;font-size:12px"></td>
-              <td><input class="input" type="number" step="any" min="0.01" data-i="${i}" data-f="qty" value="${l.qty}" style="width:60px;padding:5px 7px;font-size:12px"></td>
+                            <td>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <input class="input" type="number" step="any" min="0.01" data-i="${i}" data-f="qty" value="${l.qty}" style="width:60px;padding:5px 7px;font-size:12px">
+                  <span style="font-size:11px; color:var(--text-2); white-space:nowrap; font-weight:600;">${esc(l.unit || '')}</span>
+                </div>
+              </td>
               <td><input class="input" type="number" step="any" min="0" data-i="${i}" data-f="cost" value="${l.cost}" style="width:70px;padding:5px 7px;font-size:12px"></td>
               <td><input class="input" type="number" step="any" min="0" data-i="${i}" data-f="mrp" value="${l.mrp}" style="width:70px;padding:5px 7px;font-size:12px"></td>
               <td><input class="input" type="number" step="any" min="0" data-i="${i}" data-f="selling_price" value="${l.selling_price || l.mrp}" style="width:70px;padding:5px 7px;font-size:12px"></td>
@@ -6970,8 +6975,8 @@ function renderNewInvoice(content, preselect){
           </div>
 
           <div class="grid-3" style="gap:8px">
-            <div>
-              <label class="label" style="font-size:10px">Qty</label>
+                        <div>
+              <label class="label" style="font-size:10px">Qty (${esc(l.sell_unit)})</label>
               <input class="input" type="number" step="any" min="0.01" data-i="${i}" data-f="qty" value="${l.qty}" style="padding:8px 10px;min-height:38px;font-size:13px">
               ${unitSelector}
             </div>
