@@ -6848,6 +6848,7 @@ function renderNewInvoice(content, preselect){
         toast('Out of stock: ' + p.name, 'error');
         return;
       }
+      const price = Number(p.selling_price || p.mrp || 0);
       lines.push({
         product_id:    p.id,
         product_name:  p.name,
@@ -6858,9 +6859,9 @@ function renderNewInvoice(content, preselect){
         unit:          p.unit || '',
         qty:           1,
         mrp:           Number(p.mrp || 0),
-        price:         Number(p.selling_price || p.mrp || 0),
+        price:         price,
         gst_rate:      Number(p.gst_rate || 0),
-        total:         0
+        total:         1 * price // FIXED: Calculate initial total
       });
       renderLines();
       return;
@@ -6873,6 +6874,7 @@ function renderNewInvoice(content, preselect){
       return;
     }
 
+    const price = Number(batch.selling_price || batch.mrp || 0);
     lines.push({
       product_id:    p.id,
       product_name:  p.name,
@@ -6883,9 +6885,9 @@ function renderNewInvoice(content, preselect){
       unit:          p.unit || '',
       qty:           1,
       mrp:           Number(batch.mrp || 0),
-      price:         Number(batch.selling_price || batch.mrp || 0),
+      price:         price,
       gst_rate:      Number(p.gst_rate || 0),
-      total:         0
+      total:         1 * price // FIXED: Calculate initial total
     });
     renderLines();
   }
@@ -6941,7 +6943,7 @@ function renderNewInvoice(content, preselect){
 
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
             <span class="text-xs muted">Line total</span>
-            <b style="font-size:15px;color:var(--teal-700)">${rs(l.total)}</b>
+            <b class="line-total-val" style="font-size:15px;color:var(--teal-700)">${rs(l.total)}</b> <!-- FIXED: Added class here -->
           </div>
         </div>
       `;
@@ -6954,10 +6956,11 @@ function renderNewInvoice(content, preselect){
         const f = e.target.dataset.f;
         lines[i][f] = Number(e.target.value) || 0;
         lines[i].total = Number(lines[i].qty || 0) * Number(lines[i].price || 0);
+        
         /* Update the line total display + summary without full re-render (avoids losing focus) */
         const lineCard = e.target.closest('.card');
         if(lineCard){
-          const totalEl = lineCard.querySelector('div[style*="justify-content:space-between"] b');
+          const totalEl = lineCard.querySelector('.line-total-val'); // FIXED: Target specific class
           if(totalEl) totalEl.textContent = rs(lines[i].total);
         }
         updateSummary();
@@ -6983,6 +6986,7 @@ function renderNewInvoice(content, preselect){
         line.expiry_date = batch.expiry_date;
         line.mrp         = Number(batch.mrp || 0);
         line.price       = Number(batch.selling_price || batch.mrp || 0);
+        line.total       = Number(line.qty) * Number(line.price); // Recalculate on batch change
         renderLines();
         toast('Batch changed to ' + batch.batch_no, 'success');
       });
@@ -7052,6 +7056,10 @@ function renderNewInvoice(content, preselect){
     /* Validate per-line */
     for(let i = 0; i < lines.length; i++){
       const l = lines[i];
+      
+      // FIXED: Force recalculate total right before saving to prevent any UI mismatch
+      l.total = Number(l.qty) * Number(l.price); 
+      
       if(!(Number(l.qty) > 0)){
         toast('Qty must be > 0 for ' + l.product_name, 'error');
         return null;
