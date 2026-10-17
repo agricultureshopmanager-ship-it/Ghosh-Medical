@@ -7490,10 +7490,16 @@ async function deleteInvoice(inv, onDone){
     const qty = Number(it.qty) || 0;
     if(!qty) continue;
 
-    if(it.batch_id){
+        if(it.batch_id){
       const batch = DB.product_batches.find(b => b.id === it.batch_id);
       if(batch){
-        await adjustBatchQty(batch.id, qty);
+        let restoreQty = qty;
+        const p = DB.products.find(x => x.id === it.product_id);
+        // FIX: Convert loose unit qty back to base unit for stock restoration
+        if(p && p.loose_unit && Number(p.conversion_factor) > 1 && it.unit === p.loose_unit){
+           restoreQty = restoreQty / Number(p.conversion_factor);
+        }
+        await adjustBatchQty(batch.id, restoreQty);
       } else if(it.batch_no && it.expiry_date && it.product_id){
         const alt = DB.product_batches.find(b =>
           b.product_id === it.product_id &&
@@ -8553,9 +8559,15 @@ if(qtyEl){
       return;
     }
 
-    /* 2. Restore stock to original batch */
+        /* 2. Restore stock to original batch */
     if(selectedLine.batch_id){
-      await adjustBatchQty(selectedLine.batch_id, qty);
+      let returnQty = qty;
+      const p = DB.products.find(x => x.id === selectedLine.product_id);
+      // FIX: Convert loose unit qty back to base unit
+      if(p && p.loose_unit && Number(p.conversion_factor) > 1 && selectedLine.unit === p.loose_unit){
+         returnQty = returnQty / Number(p.conversion_factor);
+      }
+      await adjustBatchQty(selectedLine.batch_id, returnQty);
     } else if(selectedLine.product_id){
       await adjustProductStock(selectedLine.product_id, qty);
     }
@@ -9369,12 +9381,17 @@ function renderPnL(content){
         const qty = Number(it.qty) || 0;
 
         /* Cost: from batch if batch-linked, else from product.cost */
-        let costPerUnit = 0;
+                let costPerUnit = 0;
         if(it.batch_id){
           const b = DB.product_batches.find(x => x.id === it.batch_id);
           costPerUnit = b ? Number(b.cost || 0) : (p ? Number(p.cost || 0) : 0);
         } else if(p){
           costPerUnit = Number(p.cost || 0);
+        }
+
+        // FIX: If sold as loose unit, divide cost by conversion factor
+        if(p && p.loose_unit && Number(p.conversion_factor) > 1 && it.unit === p.loose_unit){
+           costPerUnit = costPerUnit / Number(p.conversion_factor);
         }
 
         const cost = qty * costPerUnit;
@@ -9607,12 +9624,17 @@ function renderMargin(content){
       const p   = DB.products.find(x => x.id === it.product_id);
       const qty = Number(it.qty) || 0;
 
-      let costPerUnit = 0;
+            let costPerUnit = 0;
       if(it.batch_id){
         const b = DB.product_batches.find(x => x.id === it.batch_id);
         costPerUnit = b ? Number(b.cost || 0) : (p ? Number(p.cost || 0) : 0);
       } else if(p){
         costPerUnit = Number(p.cost || 0);
+      }
+
+      // FIX: If sold as loose unit, divide cost by conversion factor
+      if(p && p.loose_unit && Number(p.conversion_factor) > 1 && it.unit === p.loose_unit){
+         costPerUnit = costPerUnit / Number(p.conversion_factor);
       }
 
       subtotal  += Number(it.total || 0);
