@@ -5174,14 +5174,27 @@ function openProductForm(existing, prefill, onCreated){
         </div>
       ` : ''}
 
-      <div class="grid-2">
+            <div class="grid-2">
         <div>
-          <label class="label">Unit</label>
+          <label class="label">Base Unit (e.g. Strip)</label>
           <select class="input" name="unit">${unitOptions}</select>
         </div>
         <div>
           <label class="label">GST Rate</label>
           <select class="input" name="gst_rate">${gstOptions}</select>
+        </div>
+      </div>
+
+      <div class="grid-2" style="padding:12px;background:#f8fafc;border-radius:10px;border:1px solid var(--border)">
+        <div>
+          <label class="label">Loose Unit (Optional)</label>
+          <input class="input" name="loose_unit" value="${esc(p.loose_unit || '')}" placeholder="e.g. Tablet">
+          <div class="field-hint">Leave empty if not sold loose</div>
+        </div>
+        <div>
+          <label class="label">Qty per Base Unit</label>
+          <input class="input" type="number" step="any" min="1" name="conversion_factor" value="${p.conversion_factor || 1}" placeholder="e.g. 10">
+          <div class="field-hint">How many tablets in 1 strip?</div>
         </div>
       </div>
 
@@ -5277,7 +5290,7 @@ function openProductForm(existing, prefill, onCreated){
         isBatchManaged = (fd.get('batch_managed') || 'yes') === 'yes';
       }
 
-      const common = {
+            const common = {
         name,
         category:        (fd.get('category') || '').trim(),
         company:         (fd.get('company') || '').trim(),
@@ -5287,7 +5300,10 @@ function openProductForm(existing, prefill, onCreated){
         low_stock_alert: Number(fd.get('low_stock_alert')) || 0,
         schedule:        (fd.get('schedule') || '').trim(),
         notes:           (fd.get('notes') || '').trim(),
-        batch_managed:   isBatchManaged
+        batch_managed:   isBatchManaged,
+        // ADD THESE TWO LINES:
+        loose_unit:        (fd.get('loose_unit') || '').trim() || null,
+        conversion_factor: Number(fd.get('conversion_factor')) || 1
       };
 
       let data;
@@ -6637,10 +6653,6 @@ console.log('[MediStore] Block 12 loaded · purchases + batch-creating bill');
    BLOCK 13 — INVOICE BUILDER (NEW INVOICE · FEFO · BATCH PICKER)
    ══════════════════════════════════════════════════════════════════ */
 
-/* ─────────────────────────────────────────────
-   1. INVOICE BUILDER
-   Route: #/new-invoice?customer=<id>&doctor=<id>
-   ───────────────────────────────────────────── */
 function renderNewInvoice(content, preselect){
   preselect = preselect || {};
 
@@ -6842,6 +6854,10 @@ function renderNewInvoice(content, preselect){
 
   /* ── Add product line (FEFO auto-pick) ── */
   function addProductLine(p){
+    const baseUnit = p.unit || 'unit';
+    const looseUnit = p.loose_unit || null;
+    const convFactor = Number(p.conversion_factor) || 1;
+
     if(p.batch_managed === false){
       /* Non-batch product */
       if(Number(p.stock) <= 0){
@@ -6856,12 +6872,16 @@ function renderNewInvoice(content, preselect){
         batch_id:      null,
         batch_no:      '',
         expiry_date:   null,
-        unit:          p.unit || '',
+        unit:          baseUnit,
+        loose_unit:    looseUnit,
+        conversion_factor: convFactor,
+        sell_unit:     baseUnit, // Default to base unit
+        base_price:    price,    // Price per base unit
         qty:           1,
         mrp:           Number(p.mrp || 0),
         price:         price,
         gst_rate:      Number(p.gst_rate || 0),
-        total:         1 * price // FIXED: Calculate initial total
+        total:         1 * price
       });
       renderLines();
       return;
@@ -6882,12 +6902,16 @@ function renderNewInvoice(content, preselect){
       batch_id:      batch.id,
       batch_no:      batch.batch_no || '',
       expiry_date:   batch.expiry_date || null,
-      unit:          p.unit || '',
+      unit:          baseUnit,
+      loose_unit:    looseUnit,
+      conversion_factor: convFactor,
+      sell_unit:     baseUnit,
+      base_price:    price,
       qty:           1,
       mrp:           Number(batch.mrp || 0),
       price:         price,
       gst_rate:      Number(p.gst_rate || 0),
-      total:         1 * price // FIXED: Calculate initial total
+      total:         1 * price
     });
     renderLines();
   }
@@ -6905,6 +6929,15 @@ function renderNewInvoice(content, preselect){
       const expInfo = l.batch_managed ? expiryInfo(l.expiry_date) : null;
       const expChip = l.batch_managed && l.expiry_date ? renderExpiryBadge(l.expiry_date) : '';
       const isNonBatch = !l.batch_managed;
+      
+      // Dual Unit UI Logic
+      const hasDualUnit = l.loose_unit && l.conversion_factor > 1;
+      const unitSelector = hasDualUnit ? `
+        <select class="input" data-i="${i}" data-f="sell_unit" style="padding:4px 8px;min-height:32px;font-size:12px;width:100px;margin-top:4px">
+          <option value="${l.unit}" ${l.sell_unit === l.unit ? 'selected' : ''}>${l.unit}</option>
+          <option value="${l.loose_unit}" ${l.sell_unit === l.loose_unit ? 'selected' : ''}>${l.loose_unit}</option>
+        </select>
+      ` : `<div style="padding:8px 0;font-weight:600;font-size:12px;color:var(--text-2)">${l.unit}</div>`;
 
       return `
         <div class="card" style="margin-bottom:8px;padding:12px;background:#fafbfc">
@@ -6930,40 +6963,74 @@ function renderNewInvoice(content, preselect){
             <div>
               <label class="label" style="font-size:10px">Qty</label>
               <input class="input" type="number" step="any" min="0.01" data-i="${i}" data-f="qty" value="${l.qty}" style="padding:8px 10px;min-height:38px;font-size:13px">
+              ${unitSelector}
             </div>
             <div>
               <label class="label" style="font-size:10px">MRP (₹)</label>
               <div style="padding:8px 10px;background:#f1f5f9;border-radius:9px;font-weight:600;font-size:13px;min-height:38px;display:flex;align-items:center">${fmtNum(l.mrp)}</div>
             </div>
             <div>
-              <label class="label" style="font-size:10px">Price (₹)</label>
+              <label class="label" style="font-size:10px">Price (₹) / ${l.sell_unit}</label>
               <input class="input" type="number" step="any" min="0.01" data-i="${i}" data-f="price" value="${l.price}" style="padding:8px 10px;min-height:38px;font-size:13px">
             </div>
           </div>
 
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
             <span class="text-xs muted">Line total</span>
-            <b class="line-total-val" style="font-size:15px;color:var(--teal-700)">${rs(l.total)}</b> <!-- FIXED: Added class here -->
+            <b class="line-total-val" style="font-size:15px;color:var(--teal-700)">${rs(l.total)}</b>
           </div>
         </div>
       `;
     }).join('');
 
-    /* Wire qty/price inputs */
+    /* Wire inputs (Qty & Price) */
     box.querySelectorAll('input[data-i]').forEach(inp => {
       inp.addEventListener('input', e => {
         const i = +e.target.dataset.i;
         const f = e.target.dataset.f;
-        lines[i][f] = Number(e.target.value) || 0;
+        
+        if(f === 'price'){
+           lines[i].price = Number(e.target.value) || 0;
+           // Update base price if they manually change it
+           if(lines[i].sell_unit === lines[i].unit) {
+             lines[i].base_price = lines[i].price;
+           }
+        } else {
+           lines[i][f] = Number(e.target.value) || 0;
+        }
+
         lines[i].total = Number(lines[i].qty || 0) * Number(lines[i].price || 0);
         
-        /* Update the line total display + summary without full re-render (avoids losing focus) */
+        /* Update the line total display + summary without full re-render */
         const lineCard = e.target.closest('.card');
         if(lineCard){
-          const totalEl = lineCard.querySelector('.line-total-val'); // FIXED: Target specific class
+          const totalEl = lineCard.querySelector('.line-total-val');
           if(totalEl) totalEl.textContent = rs(lines[i].total);
         }
         updateSummary();
+      });
+    });
+
+    /* Wire Unit Selector (Dual Unit) */
+    box.querySelectorAll('select[data-f="sell_unit"]').forEach(sel => {
+      sel.addEventListener('change', e => {
+        const i = +e.target.dataset.i;
+        const newUnit = e.target.value;
+        const l = lines[i];
+        
+        l.sell_unit = newUnit;
+        
+        // Recalculate price based on unit
+        if(newUnit === l.loose_unit) {
+          l.price = l.base_price / l.conversion_factor;
+        } else {
+          l.price = l.base_price;
+        }
+        
+        // Recalculate total
+        l.total = Number(l.qty || 0) * Number(l.price || 0);
+        
+        renderLines(); // Re-render to update the input label (Price / strip vs Price / tablet)
       });
     });
 
@@ -6985,8 +7052,16 @@ function renderNewInvoice(content, preselect){
         line.batch_no    = batch.batch_no || '';
         line.expiry_date = batch.expiry_date;
         line.mrp         = Number(batch.mrp || 0);
-        line.price       = Number(batch.selling_price || batch.mrp || 0);
-        line.total       = Number(line.qty) * Number(line.price); // Recalculate on batch change
+        line.base_price  = Number(batch.selling_price || batch.mrp || 0);
+        
+        // Reset price based on current unit
+        if(line.sell_unit === line.loose_unit) {
+          line.price = line.base_price / line.conversion_factor;
+        } else {
+          line.price = line.base_price;
+        }
+        
+        line.total = Number(line.qty) * Number(line.price);
         renderLines();
         toast('Batch changed to ' + batch.batch_no, 'success');
       });
@@ -7057,7 +7132,7 @@ function renderNewInvoice(content, preselect){
     for(let i = 0; i < lines.length; i++){
       const l = lines[i];
       
-      // FIXED: Force recalculate total right before saving to prevent any UI mismatch
+      // Force recalculate total right before saving
       l.total = Number(l.qty) * Number(l.price); 
       
       if(!(Number(l.qty) > 0)){
@@ -7082,12 +7157,19 @@ function renderNewInvoice(content, preselect){
     if(!dv){ toast('Please pick a date', 'error'); return null; }
     if(isFuture(dv)){ toast('Future dates are not allowed', 'error'); return null; }
 
-    /* Stock check — aggregate by batch */
-    const stockLines = lines.map(l => ({
-      product_id: l.product_id,
-      batch_id:   l.batch_id,
-      qty:        Number(l.qty) || 0
-    }));
+    /* Stock check — aggregate by batch, converting to BASE unit */
+    const stockLines = lines.map(l => {
+      let baseQty = Number(l.qty) || 0;
+      if(l.sell_unit === l.loose_unit && l.conversion_factor > 1) {
+        baseQty = baseQty / l.conversion_factor;
+      }
+      return {
+        product_id: l.product_id,
+        batch_id:   l.batch_id,
+        qty:        baseQty
+      };
+    });
+    
     const stockRes = checkStock(stockLines);
     if(!stockRes.ok){
       if(stockRes.reason === 'expired'){
@@ -7169,8 +7251,8 @@ function renderNewInvoice(content, preselect){
         batch_id:     l.batch_id,
         batch_no:     l.batch_no || '',
         expiry_date:  l.expiry_date || null,
-        unit:         l.unit || '',
-        qty:          Number(l.qty)   || 0,
+        unit:         l.sell_unit || l.unit || '', // Save the ACTUAL sold unit (e.g. 'tablet')
+        qty:          Number(l.qty)   || 0,        // Save the ACTUAL sold qty (e.g. 5)
         mrp:          Number(l.mrp)   || 0,
         price:        Number(l.price) || 0,
         gst_rate:     rate,
@@ -7187,13 +7269,19 @@ function renderNewInvoice(content, preselect){
       return null;
     }
 
-    /* Deduct stock */
+    /* Deduct stock (MUST deduct in BASE units) */
     for(const l of lines){
-      const qty = Number(l.qty) || 0;
+      let deductQty = Number(l.qty) || 0;
+      
+      // If selling tablets, convert back to strips for stock deduction
+      if(l.sell_unit === l.loose_unit && l.conversion_factor > 1) {
+        deductQty = deductQty / l.conversion_factor;
+      }
+
       if(l.batch_managed && l.batch_id){
-        await adjustBatchQty(l.batch_id, -qty);
+        await adjustBatchQty(l.batch_id, -deductQty);
       } else if(!l.batch_managed){
-        await adjustProductStock(l.product_id, -qty);
+        await adjustProductStock(l.product_id, -deductQty);
       }
     }
 
@@ -7228,7 +7316,7 @@ function renderNewInvoice(content, preselect){
   renderLines();
 }
 
-console.log('[MediStore] Block 13 loaded · invoice builder + FEFO + batch picker');
+console.log('[MediStore] Block 13 loaded · invoice builder + FEFO + batch picker + DUAL UNIT');
 </script>
 <script>
 /* ══════════════════════════════════════════════════════════════════
