@@ -4629,12 +4629,21 @@ async function renderSupplierProfile(content, id){
     <div class="card">
       <div class="card-title">Ledger <small>Running balance</small></div>
       ${(() => {
-        const tl = [
+                const tl = [
+          // 1. The Bills (Credits)
           ...bills.map(b => ({ date: txDate(b, 'bill_date'), type: 'Bill', ref: b.bill_no || 'Purchase', id: b.id, debit: 0, credit: Number(b.total || 0) })),
+          // 2. The Payment made AT the time of billing (Debits)
+          ...bills.filter(b => Number(b.paid) > 0).map(b => ({ date: txDate(b, 'bill_date'), type: 'Bill Payment', ref: b.bill_no + ' (Paid)', id: b.id, debit: Number(b.paid), credit: 0 })),
+          // 3. Extra Payments (Debits)
           ...pays.map(p => ({ date: txDate(p, 'payment_date'), type: 'Payment', ref: p.mode || 'Payment', id: p.id, debit: Number(p.amount || 0), credit: 0 })),
+          // 4. Returns (Debits)
           ...returnsTo.map(r => ({ date: txDate(r, 'return_date'), type: 'Return', ref: r.product_name || 'Return', id: r.id, debit: Number(r.amount || 0), credit: 0 }))
-        ].sort((a, b) => a.date.localeCompare(b.date));
-
+        ].sort((a, b) => {
+          if (a.date !== b.date) return a.date.localeCompare(b.date);
+          if (a.credit > 0 && b.debit > 0) return -1;
+          if (a.debit > 0 && b.credit > 0) return 1;
+          return 0;
+        });
         let bal = tt.opening;
 
         const rowsHTML = [];
@@ -6354,11 +6363,15 @@ function openPurchaseBillForm(supplier, existing){
       updateSummary();
     }
 
-    /* ── Summary ── */
+       /* ── Summary ── */
     function updateSummary(){
       const sub   = billLines.reduce((s, l) => s + (Number(l.total) || 0), 0);
       const disc  = Number(root.querySelector('#pb-disc').value) || 0;
       const total = Math.max(0, sub - disc);
+      
+      const paid  = Number(root.querySelector('input[name="paid"]').value) || 0;
+      const due   = Math.max(0, total - paid);
+
       const box   = root.querySelector('#pb-summary');
       if(box){
         box.innerHTML = `
@@ -6366,6 +6379,12 @@ function openPurchaseBillForm(supplier, existing){
           <div style="display:flex;justify-content:space-between"><span>Discount</span><b style="color:var(--red)">− ${rs(disc)}</b></div>
           <div style="display:flex;justify-content:space-between;font-size:15px;padding-top:6px;border-top:1px solid var(--border);margin-top:6px">
             <b>Total</b><b style="color:var(--teal-700)">${rs(total)}</b>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:4px">
+            <span>Paid Now</span><b style="color:var(--green)">${rs(paid)}</b>
+          </div>
+          <div style="display:flex;justify-content:space-between">
+            <span>Due</span><b style="color:${due > 0 ? 'var(--red)' : 'var(--green)'}">${rs(due)}</b>
           </div>`;
       }
     }
@@ -6428,7 +6447,8 @@ function openPurchaseBillForm(supplier, existing){
     });
 
     /* Discount input */
-    root.querySelector('#pb-disc').addEventListener('input', updateSummary);
+        root.querySelector('#pb-disc').addEventListener('input', updateSummary);
+    root.querySelector('input[name="paid"]').addEventListener('input', updateSummary);
 
     renderLines();
 
