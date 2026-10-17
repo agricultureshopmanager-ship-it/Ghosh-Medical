@@ -6288,7 +6288,7 @@ function openPurchaseBillForm(supplier, existing){
               <td><input class="input" type="number" step="any" min="0" data-i="${i}" data-f="cost" value="${l.cost}" style="width:70px;padding:5px 7px;font-size:12px"></td>
               <td><input class="input" type="number" step="any" min="0" data-i="${i}" data-f="mrp" value="${l.mrp}" style="width:70px;padding:5px 7px;font-size:12px"></td>
               <td><input class="input" type="number" step="any" min="0" data-i="${i}" data-f="selling_price" value="${l.selling_price || l.mrp}" style="width:70px;padding:5px 7px;font-size:12px"></td>
-              <td style="text-align:right;font-weight:600">${rs(l.total)}</td>
+              <td class="line-total-cell" style="text-align:right;font-weight:600">${rs(l.total)}</td>
               <td style="text-align:right">
                 <button type="button" class="btn btn-ghost btn-sm" data-del="${i}" style="color:var(--red);padding:3px 7px;min-height:auto">✕</button>
               </td>
@@ -6297,7 +6297,7 @@ function openPurchaseBillForm(supplier, existing){
         </tbody>
       </table></div>`;
 
-      /* Wire inputs */
+            /* Wire inputs */
       box.querySelectorAll('input[data-i]').forEach(inp => {
         inp.addEventListener('input', e => {
           const i = +e.target.dataset.i;
@@ -6315,15 +6315,23 @@ function openPurchaseBillForm(supplier, existing){
             const prevSp = billLines[i].selling_price;
             if(!prevSp || prevSp === 0){
               billLines[i].selling_price = billLines[i].mrp;
+              // Update the Sell input directly without redrawing the whole table
+              const sellInput = box.querySelector(`input[data-i="${i}"][data-f="selling_price"]`);
+              if(sellInput) sellInput.value = billLines[i].selling_price;
             }
           }
 
+          // Recalculate the total for this specific line
           billLines[i].total = Number(billLines[i].qty || 0) * Number(billLines[i].cost || 0);
 
-          /* Recompute only on qty/cost/mrp changes */
-          if(f === 'qty' || f === 'cost' || f === 'mrp' || f === 'selling_price'){
-            renderLines();
+          // Update ONLY the line total text on the screen
+          const row = e.target.closest('tr');
+          if(row){
+            const totalCell = row.querySelector('.line-total-cell');
+            if(totalCell) totalCell.textContent = rs(billLines[i].total);
           }
+
+          // Update the bottom subtotal
           updateSummary();
         });
       });
