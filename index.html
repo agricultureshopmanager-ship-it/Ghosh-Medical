@@ -2629,9 +2629,11 @@ const NAV_LINKS = [
     { href:'#/analytics',   icon:'📈', label:'Analytics'  },
     { href:'#/shop-health', icon:'🏥', label:'Shop Health'}
   ]},
-  { group:'Parties', items:[
+    { group:'Parties', items:[
     { href:'#/customers', icon:'👥', label:'Customers' },
-    { href:'#/doctors',   icon:'🩺', label:'Doctors'   }
+    { href:'#/doctors',   icon:'🩺', label:'Doctors'   },
+    { href:'#/companies', icon:'🏢', label:'Companies' },
+    { href:'#/suppliers', icon:'🚚', label:'Suppliers' }
   ]},
     { group:'Inventory', items:[
     { href:'#/products',        icon:'💊', label:'Products'        },
@@ -5772,7 +5774,7 @@ function openProductPickerForBatch(){
   openModal(`
     <h2 style="font-size:16px;font-weight:700;margin-bottom:6px">Choose Product</h2>
     <div class="text-sm muted" style="margin-bottom:14px">Pick the product this batch belongs to.</div>
-    <div id="pp-ss-wrap"></div>
+        <div id="pp-ss-wrap" style="min-height: 280px;"></div>
     <div style="display:flex;justify-content:flex-end;margin-top:14px">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
     </div>
@@ -6132,7 +6134,7 @@ function openSupplierPickerForPurchase(){
   openModal(`
     <h2 style="font-size:16px;font-weight:700;margin-bottom:6px">Choose Vendor</h2>
     <div class="text-sm muted" style="margin-bottom:14px">Pick the company or supplier for this purchase.</div>
-    <div id="vnd-ss-wrap"></div>
+        <div id="vnd-ss-wrap" style="min-height: 280px;"></div>
     <div style="display:flex;justify-content:flex-end;margin-top:14px">
       <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
     </div>
